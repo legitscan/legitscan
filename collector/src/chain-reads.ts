@@ -1,7 +1,7 @@
 // Reads from the Robinhood Chain RPC: Pons launches, the dev wallet's token flows, burned supply.
 // The public node keeps no old state (no archive), so everything here comes from event logs plus today's state.
 // Tested live 2026-11-16: getLogs allows 9,999,999 blocks and 10,000 logs per call; it answers 429 when pushed.
-import type { RpcClient } from "./contract-facts.ts";
+import { decodeText, type RpcClient } from "./contract-facts.ts";
 import { HttpError } from "./http-json.ts";
 
 export const LAUNCHER = "0xe33e9e479df8802cb0866d5d05258bec4cf62948"; // Pons, same as reinkeep-data
@@ -163,3 +163,46 @@ export async function balances(rpc: RpcClient, token: string, holders: string[])
 }
 
 export const BURN_HOLDERS = [DEAD, ZERO];
+
+// Pons bonding curve. Measured 2026-11-16 on 30 live pools against GeckoTerminal: a pool starts holding the whole supply
+// against PONS_VIRTUAL_ETH of virtual ETH (constant product) and migrates once 2.5x that is raised. With h = share of the
+// supply still in the pool: filled % = (1/h - 1) / 2.5 and MC = virtual ETH / h^2. A migrated coin's pool is empty.
+export const PONS_VIRTUAL_ETH = 1.635; // median over 30 coins of GeckoTerminal MC / ETH price x h^2
+const PONS_RAISE_X = 2.5;
+
+export type CurveRead = { bondPct: number; bonded: boolean; mcEth: number | null };
+
+export function curveFromPool(poolHolds: bigint, supply: bigint): CurveRead | null {
+  if (supply <= 0n || poolHolds > supply) return null;
+  if (poolHolds === 0n) return { bondPct: 100, bonded: true, mcEth: null };
+  const h = Number((poolHolds * 1_000_000_000n) / supply) / 1_000_000_000;
+  const filled = Math.min(100, ((1 / h - 1) / PONS_RAISE_X) * 100);
+  return { bondPct: Math.round(filled * 100) / 100, bonded: false, mcEth: PONS_VIRTUAL_ETH / (h * h) };
+}
+
+const SYMBOL = "0x95d89b41";
+const NAME = "0x06fdde03";
+const TOTAL_SUPPLY = "0x18160ddd";
+
+// Curve state of Pons coins: tokens left in each pool, one eth_call per coin per run. Total supply, symbol() and name()
+// are read only the first time (supply: null); the caller stores them. Nodes take at most 10 calls per batch.
+export async function readCurves(rpc: RpcClient, coins: { ca: string; pool: string; supply: bigint | null }[]) {
+  const call = (to: string, data: string) => ({ method: "eth_call", params: [{ to, data }, "latest"] });
+  const calls = coins.flatMap((c) => [
+    call(c.ca, BALANCE_OF + c.pool.slice(2).padStart(64, "0")),
+    ...(c.supply === null ? [call(c.ca, TOTAL_SUPPLY), call(c.ca, SYMBOL), call(c.ca, NAME)] : []),
+  ]);
+  const answers = [];
+  for (let i = 0; i < calls.length; i += 10) answers.push(...(await rpc.batch(calls.slice(i, i + 10))));
+  const out = new Map<string, CurveRead & { supply: bigint; symbol: string | null; name: string | null }>();
+  let k = 0;
+  for (const c of coins) {
+    const held = answers[k++];
+    const [total, sym, name] = c.supply === null ? [answers[k++], answers[k++], answers[k++]] : [null, null, null];
+    const supply = c.supply ?? (total?.ok ? toBig(total.value) : null);
+    const holds = held.ok ? toBig(held.value) : null;
+    const curve = holds !== null && supply !== null ? curveFromPool(holds, supply) : null;
+    if (curve && supply !== null) out.set(c.ca, { ...curve, supply, symbol: sym?.ok ? decodeText(sym.value) : null, name: name?.ok ? decodeText(name.value) : null });
+  }
+  return out;
+}

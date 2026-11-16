@@ -61,8 +61,9 @@ CREATE TABLE IF NOT EXISTS coins (
   flows_to_block  INTEGER,
   flows_at_ms     INTEGER,
 
-  -- Pons bonding curve (GeckoTerminal tokens/multi), for the New / Almost bonded / Migrated boards.
-  -- bonded: 0 still on the curve, 1 migrated to its DEX pool, NULL not a curve coin or not read yet.
+  -- Pons bonding curve, read from the curve pool on chain (chain-reads.ts curveFromPool), for the New / Almost bonded /
+  -- Migrated boards. bonded: 0 still on the curve, 1 migrated to its DEX pool, NULL not a curve coin or not read yet.
+  pool            TEXT,                    -- Pons curve pool (launch event topic2)
   launched_ms     INTEGER,                 -- time of the launch block
   bond_pct        REAL,
   bonded          INTEGER,
