@@ -83,13 +83,15 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
 
   // 1b. Other launchers, from GeckoTerminal's newest and busiest pools.
   const seen = new Set<string>();
-  for (let page = 1; page <= (o.gtListPages ?? 5); page++) {
-    for (const path of ["new_pools", "pools"] as const) {
-      try {
-        for (const t of await o.sources.gtPoolTokens(path, page)) seen.add(t);
-      } catch (e) {
-        s.errors.push(`gt ${path} p${page}: ${(e as Error).message}`);
-      }
+  // One page of new pools (Pons launches already come from the chain), then the busiest pools, which is what catches a
+  // coin growing past the floor. GeckoTerminal answered 429 from GitHub's runners at 10 list calls (2026-11-16).
+  const lists: ["new_pools" | "pools", number][] = [["new_pools", 1]];
+  for (let page = 1; page <= (o.gtListPages ?? 5); page++) lists.push(["pools", page]);
+  for (const [path, page] of lists) {
+    try {
+      for (const t of await o.sources.gtPoolTokens(path, page)) seen.add(t);
+    } catch (e) {
+      s.errors.push(`gt ${path} p${page}: ${(e as Error).message}`);
     }
   }
   // Coins under the floor are never re-checked on a timer (owner 2026-11-16: "ngapain cek mc dibawah 5k"). A coin that
@@ -106,13 +108,15 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
   // 2. Market: never-checked coins once (new launches, coins flagged above), coins at/above the floor every run.
   // 2026-11-16: 486k Pons launches, 0.5% with a market; re-checking the dead ones would cost millions of D1 writes.
   const now = o.now();
-  const want = await all<{ ca: string }>(
+  // Two small indexed queries instead of one OR: the OR made D1 read 703k rows per run (measured 2026-11-16).
+  const limit = (o.dexBatches ?? 20) * 30;
+  const fresh = await all<{ ca: string }>(o.db, "SELECT ca FROM coins WHERE market_at_ms IS NULL ORDER BY launch_block DESC LIMIT ?", limit);
+  const tracked = await all<{ ca: string }>(
     o.db,
-    `SELECT ca FROM coins
-     WHERE market_at_ms IS NULL OR (mc_usd >= ? AND market_at_ms < ?)
-     ORDER BY market_at_ms IS NOT NULL, coalesce(mc_usd, 0) DESC, launch_block DESC LIMIT ?`,
-    floor, now - 4 * 60_000, (o.dexBatches ?? 20) * 30,
+    "SELECT ca FROM coins WHERE mc_usd >= ? AND market_at_ms < ? ORDER BY mc_usd DESC LIMIT ?",
+    floor, now - 4 * 60_000, limit,
   );
+  const want = [...fresh, ...tracked].slice(0, limit);
   for (let i = 0; i < want.length; i += 30) {
     const cas = want.slice(i, i + 30).map((r) => r.ca);
     let found: Map<string, Market>;

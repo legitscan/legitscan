@@ -64,7 +64,9 @@ CREATE TABLE IF NOT EXISTS coins (
   last_error      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_coins_mc ON coins (mc_usd);
-CREATE INDEX IF NOT EXISTS idx_coins_market_at ON coins (market_at_ms);
+-- Only never-priced coins are in this index (new launches, coins flagged by the busiest-pools list), newest first.
+-- Partial, so pricing a coin removes one entry instead of rewriting an index of 486k rows.
+CREATE INDEX IF NOT EXISTS idx_coins_unpriced ON coins (launch_block) WHERE market_at_ms IS NULL;
 CREATE INDEX IF NOT EXISTS idx_coins_dev ON coins (dev);
 CREATE INDEX IF NOT EXISTS idx_coins_symbol ON coins (symbol);
 

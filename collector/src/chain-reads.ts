@@ -8,6 +8,8 @@ export const LAUNCHER = "0xe33e9e479df8802cb0866d5d05258bec4cf62948"; // Pons, s
 export const LAUNCH_TOPIC = "0xdcacba5e347ae7abd91cb519eb877af8fa7774e347b85dd3ddcd24a2ba8cdf37"; // topic1 token, topic2 pool, topic3 creator
 export const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 export const MAX_SPAN = 9_999_999;
+// The node's answer when a window holds over 10,000 logs or 9,999,999 blocks: retry with a smaller window.
+const tooManyLogs = (message: string) => /exceeds limit|narrow/i.test(message);
 const DEAD = "0x000000000000000000000000000000000000dead";
 const ZERO = "0x0000000000000000000000000000000000000000";
 const BURN = new Set([DEAD, ZERO]);
@@ -73,7 +75,7 @@ export async function scanLaunches(rpc: RpcClient, fromBlock: number, head: numb
     const [r] = await rpc.batch([{ method: "eth_getLogs", params: [{ address: LAUNCHER, topics: [LAUNCH_TOPIC], fromBlock: hex(from), toBlock: hex(to) }] }]);
     calls++;
     if (!r.ok) {
-      if (/exceeds limit|narrow/i.test(r.message) && span > 1000) {
+      if (tooManyLogs(r.message) && span > 1000) {
         span = Math.floor(span / 2);
         continue;
       }
@@ -99,8 +101,10 @@ export async function devFlows(rpc: RpcClient, token: string, dev: string, from:
   const f: Flows = { got: 0n, burn: 0n, toContract: 0n, toWallet: 0n };
   const out = new Map<string, bigint>();
   let calls = 0;
-  for (let lo = from; lo <= to; lo += MAX_SPAN) {
-    const hi = Math.min(to, lo + MAX_SPAN - 1);
+  // A busy dev wallet can have over 10,000 transfers in one window (seen live 2026-11-16): halve the window and retry.
+  let span = MAX_SPAN;
+  for (let lo = from; lo <= to; ) {
+    const hi = Math.min(to, lo + span - 1);
     const range = { address: token, fromBlock: hex(lo), toBlock: hex(hi) };
     const [sent, got] = await rpc.batch([
       { method: "eth_getLogs", params: [{ ...range, topics: [TRANSFER_TOPIC, word(dev)] }] },
@@ -109,8 +113,13 @@ export async function devFlows(rpc: RpcClient, token: string, dev: string, from:
     calls++;
     if (!sent.ok || !got.ok || !Array.isArray(sent.value) || !Array.isArray(got.value)) {
       const why = !sent.ok ? sent.message : !got.ok ? got.message : "not a list";
+      if (tooManyLogs(why) && span > 1000) {
+        span = Math.floor(span / 2);
+        continue;
+      }
       throw new HttpError(200, `dev getLogs ${lo}-${hi}: ${why.slice(0, 160)}`);
     }
+    lo = hi + 1;
     for (const l of got.value) f.got += toBig(isObj(l) ? l.data : null) ?? 0n;
     for (const l of sent.value) {
       const toAddr = isObj(l) && Array.isArray(l.topics) ? topicAddr(l.topics[2]) : null;
