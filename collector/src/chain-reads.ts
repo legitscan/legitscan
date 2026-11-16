@@ -48,6 +48,10 @@ export async function chainClock(rpc: RpcClient): Promise<ChainClock> {
   return { head, headMs: ta * 1000, blocksPerMs: (head - back) / ((ta - tb) * 1000) };
 }
 
+export function timeAt(clock: ChainClock, block: number): number {
+  return Math.round(clock.headMs - (clock.head - block) / clock.blocksPerMs);
+}
+
 export function blockAt(clock: ChainClock, ms: number): number {
   return Math.max(0, Math.min(clock.head, Math.round(clock.head - (clock.headMs - ms) * clock.blocksPerMs)));
 }

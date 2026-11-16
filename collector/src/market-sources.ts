@@ -140,8 +140,37 @@ export function parseGtPoolTokens(json: unknown): string[] {
   return [...out];
 }
 
+// Pons bonding curve, from GeckoTerminal /tokens/multi (30 tokens a call). Checked live 2026-11-16: every recent Pons
+// coin has launchpad_details; fdv_usd is the curve price x supply (KINETRA: 38.96% bonded, $12.1k).
+export type Curve = { ca: string; symbol: string | null; name: string | null; iconUrl: string | null; bondPct: number | null; bonded: boolean | null; bondedMs: number | null; mcUsd: number | null };
+
+export function parseGtMulti(json: unknown): Map<string, Curve> {
+  if (!isObj(json) || !Array.isArray(json.data)) throw new HttpError(200, "GeckoTerminal tokens/multi has no data");
+  const out = new Map<string, Curve>();
+  for (const t of json.data) {
+    const a = isObj(t) && isObj(t.attributes) ? t.attributes : null;
+    const ca = a ? addr(a.address) : null;
+    if (!a || !ca) continue;
+    const lp = isObj(a.launchpad_details) ? a.launchpad_details : null;
+    const pct = lp ? num(lp.graduation_percentage) : null;
+    const doneAt = lp && typeof lp.completed_at === "string" ? Date.parse(lp.completed_at) : NaN;
+    out.set(ca, {
+      ca,
+      symbol: str(a.symbol, 64),
+      name: str(a.name, 120),
+      iconUrl: httpUrl(a.image_url),
+      bondPct: pct === null ? null : Math.min(pct, 100),
+      bonded: lp && typeof lp.completed === "boolean" ? lp.completed : null,
+      bondedMs: Number.isFinite(doneAt) ? doneAt : null,
+      mcUsd: num(a.market_cap_usd) ?? num(a.fdv_usd),
+    });
+  }
+  return out;
+}
+
 export type Sources = {
   dexTokens(cas: string[]): Promise<Map<string, Market>>;
+  gtMulti(cas: string[]): Promise<Map<string, Curve>>;
   gtInfo(ca: string): Promise<GtInfo>;
   gtPoolTokens(path: "new_pools" | "pools", page: number): Promise<string[]>;
 };
@@ -155,6 +184,11 @@ export function createSources(o: { dexFetch: Fetcher; gtFetch: Fetcher; sleep: S
       if (cas.length < 1 || cas.length > 30) throw new RangeError("ask DexScreener for 1 to 30 tokens");
       for (const ca of cas) if (!ADDRESS.test(ca)) throw new RangeError(`not an address: ${ca.slice(0, 20)}`);
       return parseDexTokens(await requestJson(dex + cas.join(","), { method: "GET" }, { fetch: o.dexFetch, sleep: o.sleep }));
+    },
+    async gtMulti(cas) {
+      if (cas.length < 1 || cas.length > 30) throw new RangeError("ask GeckoTerminal for 1 to 30 tokens");
+      for (const ca of cas) if (!ADDRESS.test(ca)) throw new RangeError(`not an address: ${ca.slice(0, 20)}`);
+      return parseGtMulti(await requestJson(`${gt}/tokens/multi/${cas.join(",")}`, { method: "GET" }, { fetch: o.gtFetch, sleep: o.sleep }));
     },
     async gtInfo(ca) {
       if (!ADDRESS.test(ca)) throw new RangeError("not an address");

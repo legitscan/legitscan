@@ -61,8 +61,19 @@ CREATE TABLE IF NOT EXISTS coins (
   flows_to_block  INTEGER,
   flows_at_ms     INTEGER,
 
+  -- Pons bonding curve (GeckoTerminal tokens/multi), for the New / Almost bonded / Migrated boards.
+  -- bonded: 0 still on the curve, 1 migrated to its DEX pool, NULL not a curve coin or not read yet.
+  launched_ms     INTEGER,                 -- time of the launch block
+  bond_pct        REAL,
+  bonded          INTEGER,
+  bonded_ms       INTEGER,
+  bond_at_ms      INTEGER,
+
   last_error      TEXT
 );
+CREATE INDEX IF NOT EXISTS idx_coins_launch ON coins (launch_block);
+CREATE INDEX IF NOT EXISTS idx_coins_curve ON coins (bond_pct) WHERE bonded = 0;
+CREATE INDEX IF NOT EXISTS idx_coins_bonded ON coins (bonded_ms) WHERE bonded = 1;
 CREATE INDEX IF NOT EXISTS idx_coins_mc ON coins (mc_usd);
 -- Only never-priced coins are in this index (new launches, coins flagged by the busiest-pools list), newest first.
 -- Partial, so pricing a coin removes one entry instead of rewriting an index of 486k rows.
