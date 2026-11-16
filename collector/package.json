@@ -1,0 +1,14 @@
+{
+  "name": "legitscan-collector",
+  "private": true,
+  "type": "module",
+  "description": "LegitScan data collector: Robinhood Chain coins, market, holders, dev wallet, contract powers.",
+  "scripts": {
+    "collect": "node run-ci.ts",
+    "local": "node run-local.ts",
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": { "viem": "^2.57.17" },
+  "devDependencies": { "@types/node": "^24.0.0", "typescript": "~7.0.2" }
+}

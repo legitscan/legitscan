@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.DS_Store
+# Plans, research and agent notes stay private (repo is public)
+PLAN.md
+CLAUDE.md
