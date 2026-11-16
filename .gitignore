@@ -7,3 +7,4 @@ dist/
 # Plans, research and agent notes stay private (repo is public)
 PLAN.md
 CLAUDE.md
+.wrangler/
