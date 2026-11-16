@@ -121,12 +121,27 @@ export function parseGtInfo(json: unknown): GtInfo {
   };
 }
 
+export const WETH = "0x0bd7d308f8e1639fab988df18a8011f41eacad73"; // WETH/USDG pair held $10.4M, 2026-11-16
+
+// ETH in USD from DexScreener's WETH pairs: the deepest pair where WETH is the base token.
+export function parseEthUsd(json: unknown): number | null {
+  if (!Array.isArray(json)) throw new HttpError(200, "DexScreener answer is not a list");
+  let best: { liq: number; price: number } | null = null;
+  for (const p of json) {
+    if (!isObj(p) || !isObj(p.baseToken) || addr(p.baseToken.address) !== WETH) continue;
+    const price = num(p.priceUsd);
+    const liq = isObj(p.liquidity) ? num(p.liquidity.usd) ?? 0 : 0;
+    if (price && price > 0 && (!best || liq > best.liq)) best = { liq, price };
+  }
+  return best?.price ?? null;
+}
+
 // Tokens in a GeckoTerminal pool list (new_pools or the busiest pools). The token is the side that is not WETH,
 // USDG or native ETH.
 const BASE_ASSETS = new Set([
   "0x0000000000000000000000000000000000000000",
   "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-  "0x0bd7d308f8e1639fab988df18a8011f41eacad73", // WETH
+  WETH,
   "0x5fc5360d0400a0fd4f2af552add042d716f1d168", // USDG
 ]);
 export function parseGtPoolTokens(json: unknown): string[] {
@@ -140,8 +155,8 @@ export function parseGtPoolTokens(json: unknown): string[] {
   return [...out];
 }
 
-// Pons bonding curve, from GeckoTerminal /tokens/multi (30 tokens a call). Checked live 2026-11-16: every recent Pons
-// coin has launchpad_details; fdv_usd is the curve price x supply (KINETRA: 38.96% bonded, $12.1k).
+// GeckoTerminal /tokens/multi (30 tokens a call): the run uses it for icons only; the curve itself is read on chain
+// (chain-reads.ts curveFromPool). Checked live 2026-11-16: fdv_usd is the curve price x supply (KINETRA: 38.96%, $12.1k).
 export type Curve = { ca: string; symbol: string | null; name: string | null; iconUrl: string | null; bondPct: number | null; bonded: boolean | null; bondedMs: number | null; mcUsd: number | null };
 
 export function parseGtMulti(json: unknown): Map<string, Curve> {
@@ -171,6 +186,7 @@ export function parseGtMulti(json: unknown): Map<string, Curve> {
 export type Sources = {
   dexTokens(cas: string[]): Promise<Map<string, Market>>;
   gtMulti(cas: string[]): Promise<Map<string, Curve>>;
+  ethUsd(): Promise<number | null>;
   gtInfo(ca: string): Promise<GtInfo>;
   gtPoolTokens(path: "new_pools" | "pools", page: number): Promise<string[]>;
 };
@@ -184,6 +200,9 @@ export function createSources(o: { dexFetch: Fetcher; gtFetch: Fetcher; sleep: S
       if (cas.length < 1 || cas.length > 30) throw new RangeError("ask DexScreener for 1 to 30 tokens");
       for (const ca of cas) if (!ADDRESS.test(ca)) throw new RangeError(`not an address: ${ca.slice(0, 20)}`);
       return parseDexTokens(await requestJson(dex + cas.join(","), { method: "GET" }, { fetch: o.dexFetch, sleep: o.sleep }));
+    },
+    async ethUsd() {
+      return parseEthUsd(await requestJson(dex + WETH, { method: "GET" }, { fetch: o.dexFetch, sleep: o.sleep }));
     },
     async gtMulti(cas) {
       if (cas.length < 1 || cas.length > 30) throw new RangeError("ask GeckoTerminal for 1 to 30 tokens");

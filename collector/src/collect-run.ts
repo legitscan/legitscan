@@ -4,12 +4,14 @@
 //   3. deep check, only at/above the MC floor: GeckoTerminal info (holders, top 10, dev), contract facts,
 //      dev wallet flows (incremental), burned supply.
 import { readContractFacts, type RpcClient } from "./contract-facts.ts";
-import { BURN_HOLDERS, MAX_SPAN, balances, blockAt, chainClock, codeCheck, devFlows, scanLaunches, timeAt, type Launch } from "./chain-reads.ts";
+import { BURN_HOLDERS, MAX_SPAN, balances, blockAt, chainClock, codeCheck, devFlows, readCurves, scanLaunches, timeAt, type Launch } from "./chain-reads.ts";
 import type { D1Like } from "./d1-types.ts";
-import type { Curve, GtInfo, Market, Sources } from "./market-sources.ts";
+import type { GtInfo, Market, Sources } from "./market-sources.ts";
 
 // First Pons launch seen on 2026-11-16 was at block 27,027,321. Reading from here skips 27M empty blocks.
 export const PONS_FIRST_BLOCK = 27_000_000;
+// Curve coins launched within this window are re-read every run and shown on Almost bonded.
+export const CURVE_WINDOW_MS = 3 * 24 * 3600_000;
 
 export type RunOptions = {
   db: D1Like;
@@ -20,7 +22,7 @@ export type RunOptions = {
   mcFloorUsd?: number; // owner 2026-11-16: "MC min 5k"
   launchCalls?: number; // getLogs calls for Pons launches per run
   gtListPages?: number; // pages (20 pools each) of new_pools and of the busiest pools
-  curveCalls?: number; // GeckoTerminal tokens/multi calls (30 coins each) for Pons bonding progress
+  curveCoins?: number; // Pons curve coins read on chain per run (30 per RPC request)
   dexBatches?: number; // DexScreener calls (30 coins each)
   deepCoins?: number; // coins deep-checked per run (GeckoTerminal allows ~25 a minute)
   deepEveryMs?: number;
@@ -74,10 +76,10 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
     s.rpcLogCalls += scan.calls;
     await insertRows(
       o.db,
-      "INSERT INTO coins (ca, found_via, found_ms, launch_block, launched_ms, creator, dev)",
+      "INSERT INTO coins (ca, found_via, found_ms, launch_block, launched_ms, pool, creator, dev)",
       `ON CONFLICT (ca) DO UPDATE SET found_via = 'pons', launch_block = excluded.launch_block, launched_ms = excluded.launched_ms,
-         creator = excluded.creator, dev = excluded.creator`,
-      scan.launches.map((l: Launch) => [l.token, "pons", o.now(), l.block, timeAt(clock, l.block), l.creator, l.creator]),
+         pool = excluded.pool, creator = excluded.creator, dev = excluded.creator`,
+      scan.launches.map((l: Launch) => [l.token, "pons", o.now(), l.block, timeAt(clock, l.block), l.pool, l.creator, l.creator]),
     );
     await q(o.db, "INSERT INTO cursor (name, block) VALUES ('pons', ?) ON CONFLICT (name) DO UPDATE SET block = max(block, excluded.block)", scan.scannedTo);
     s.launchesFound += scan.launches.length;
@@ -110,49 +112,72 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
   );
   s.gtTokensSeen = seen.size;
 
-  // 1c. Pons bonding curve (owner 2026-11-16: "seperti di gmgn ada migrate, almost bound sama yang baru"). Launches of
-  // the last 3 days never read yet, then coins whose curve is moving, fullest first. A coin still on the curve has no
-  // DexScreener pair, so its MC comes from here and stage 2 leaves it alone; when it migrates, stage 2 prices it.
-  // ponytail: an old curve coin (> 3 days, < 1% filled) that wakes up is not re-read; add a trigger if that happens.
-  const curveLimit = (o.curveCalls ?? 6) * 30;
-  const recentBlock = clock.head - Math.round(3 * 24 * 3600_000 * clock.blocksPerMs);
-  const unread = await all<{ ca: string }>(o.db, "SELECT ca FROM coins WHERE launch_block >= ? AND bond_at_ms IS NULL ORDER BY launch_block DESC LIMIT ?", recentBlock, curveLimit);
-  const moving = await all<{ ca: string }>(
+  // 1c. Pons bonding curve (owner 2026-11-16: "seperti di gmgn ada migrate, almost bound sama yang baru"), read on chain
+  // from each curve pool: GeckoTerminal answered 429 from GitHub's runners (2026-11-16), the chain does not. Every coin
+  // launched in the last CURVE_WINDOW_MS and not migrated is re-read each run; only rows that changed are written.
+  // A coin still on the curve has no DexScreener pair, so its MC comes from here and stage 2 leaves it alone; when it
+  // migrates, stage 2 prices it.
+  // ponytail: an unchanged curve coin's MC is not re-priced when ETH moves; write it too if that drift matters.
+  const recentBlock = blockAt(clock, o.now() - CURVE_WINDOW_MS);
+  const onCurve = await all<{ ca: string; pool: string; total_supply: string | null; bond_pct: number | null; bonded: number | null }>(
     o.db,
-    "SELECT ca FROM coins WHERE bonded = 0 AND bond_pct >= 1 AND bond_at_ms < ? ORDER BY bond_pct DESC LIMIT ?",
-    o.now() - 4 * 60_000, curveLimit,
+    "SELECT ca, pool, total_supply, bond_pct, bonded FROM coins WHERE launch_block >= ? AND pool IS NOT NULL AND coalesce(bonded, 0) = 0 ORDER BY launch_block DESC LIMIT ?",
+    recentBlock, o.curveCoins ?? 3000,
   );
-  const curveWant = [...new Set([...unread, ...moving].map((r) => r.ca))].slice(0, curveLimit);
-  for (let i = 0; i < curveWant.length; i += 30) {
-    const cas = curveWant.slice(i, i + 30);
-    let got: Map<string, Curve>;
+  let curves: Awaited<ReturnType<typeof readCurves>> = new Map();
+  let ethUsd: number | null = null;
+  if (onCurve.length) {
+    ethUsd = await o.sources.ethUsd().catch((e: Error) => (s.errors.push(`eth price: ${e.message}`), null));
     try {
-      got = await o.sources.gtMulti(cas);
+      curves = await readCurves(o.rpc, onCurve.map((c) => ({ ca: c.ca, pool: c.pool, supply: c.total_supply && /^\d+$/.test(c.total_supply) ? BigInt(c.total_supply) : null })));
     } catch (e) {
-      s.errors.push(`gt multi: ${(e as Error).message}`);
-      break;
+      s.errors.push(`curve: ${(e as Error).message}`);
+      log(`curve: stopped, ${(e as Error).message.slice(0, 160)}`); // shown even if a later stage crashes the run
     }
-    const at = o.now();
-    await insertRows(
-      o.db,
-      "INSERT INTO coins (ca, found_via, found_ms, symbol, name, icon_url, bond_pct, bonded, bonded_ms, bond_at_ms, mc_usd, market_at_ms)",
-      `ON CONFLICT (ca) DO UPDATE SET symbol = coalesce(coins.symbol, excluded.symbol), name = coalesce(coins.name, excluded.name),
-         icon_url = coalesce(coins.icon_url, excluded.icon_url), bond_pct = excluded.bond_pct, bonded = excluded.bonded,
-         bonded_ms = coalesce(coins.bonded_ms, excluded.bonded_ms), bond_at_ms = excluded.bond_at_ms,
-         mc_usd = CASE WHEN excluded.bonded = 0 THEN excluded.mc_usd ELSE coins.mc_usd END,
-         market_at_ms = CASE WHEN excluded.bonded = 0 THEN excluded.market_at_ms
-                             WHEN excluded.bonded = 1 AND coalesce(coins.bonded, 0) = 0 THEN NULL
-                             ELSE coins.market_at_ms END`,
-      [...got.values()].filter((c) => cas.includes(c.ca)).map((c) => [
-        c.ca, "pons", at, c.symbol, c.name, c.iconUrl, c.bondPct, c.bonded === null ? null : c.bonded ? 1 : 0,
-        c.bonded ? c.bondedMs ?? at : null, at, c.mcUsd, at,
-      ]),
-    );
-    const notListed = cas.filter((ca) => !got.has(ca)); // not on GeckoTerminal yet: wait for its turn among the moving ones
-    if (notListed.length) await q(o.db, `UPDATE coins SET bond_at_ms = ? WHERE ca IN (${marks(notListed)})`, at, ...notListed);
-    s.curveChecked += got.size;
   }
-  log(`curve: ${s.curveChecked} read`);
+  const at = o.now();
+  const changed = onCurve.flatMap((c) => {
+    const r = curves.get(c.ca);
+    return r && (r.bondPct !== c.bond_pct || (r.bonded ? 1 : 0) !== c.bonded || !c.total_supply) ? [{ ca: c.ca, ...r }] : [];
+  });
+  await insertRows(
+    o.db,
+    "INSERT INTO coins (ca, found_via, found_ms, total_supply, symbol, name, bond_pct, bonded, bonded_ms, bond_at_ms, mc_usd, market_at_ms)",
+    `ON CONFLICT (ca) DO UPDATE SET total_supply = coalesce(coins.total_supply, excluded.total_supply),
+       symbol = coalesce(coins.symbol, excluded.symbol), name = coalesce(coins.name, excluded.name), bond_pct = excluded.bond_pct, bonded = excluded.bonded, bonded_ms = coalesce(coins.bonded_ms, excluded.bonded_ms),
+       bond_at_ms = excluded.bond_at_ms,
+       mc_usd = CASE WHEN excluded.bonded = 0 THEN coalesce(excluded.mc_usd, coins.mc_usd) ELSE coins.mc_usd END,
+       market_at_ms = CASE WHEN excluded.bonded = 0 THEN excluded.market_at_ms
+                           WHEN coalesce(coins.bonded, 0) = 0 THEN NULL
+                           ELSE coins.market_at_ms END`,
+    changed.map((r) => [
+      r.ca, "pons", at, r.supply.toString(), r.symbol, r.name, r.bondPct, r.bonded ? 1 : 0, r.bonded ? at : null, at,
+      r.mcEth !== null && ethUsd ? Math.round(r.mcEth * ethUsd * 100) / 100 : null, at,
+    ]),
+  );
+  s.curveChecked = curves.size;
+  log(`curve: ${curves.size} read, ${changed.length} changed, ETH $${ethUsd ?? "?"}`);
+
+  // Icons for the fullest curve coins, one GeckoTerminal call a run (best effort: it often answers 429 from GitHub).
+  // '' marks "GeckoTerminal has no icon for it", so the same coins are not asked again every run.
+  const noIcon = await all<{ ca: string }>(
+    o.db,
+    "SELECT ca FROM coins WHERE launch_block >= ? AND bonded = 0 AND bond_pct >= 10 AND icon_url IS NULL ORDER BY bond_pct DESC LIMIT 30",
+    recentBlock,
+  );
+  if (noIcon.length) {
+    try {
+      const got = await o.sources.gtMulti(noIcon.map((r) => r.ca));
+      await insertRows(
+        o.db,
+        "INSERT INTO coins (ca, found_via, found_ms, icon_url)",
+        "ON CONFLICT (ca) DO UPDATE SET icon_url = coalesce(coins.icon_url, excluded.icon_url)",
+        noIcon.map((r) => [r.ca, "pons", at, got.get(r.ca)?.iconUrl ?? ""]),
+      );
+    } catch (e) {
+      s.errors.push(`gt icons: ${(e as Error).message}`);
+    }
+  }
 
   // 2. Market: never-checked coins once (new launches, coins flagged above), coins at/above the floor every run.
   // 2026-11-16: 486k Pons launches, 0.5% with a market; re-checking the dead ones would cost millions of D1 writes.
@@ -242,7 +267,7 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
       await q(
         o.db,
         `UPDATE coins SET holders = ?, top10_pct = ?, gt_dev = ?, gt_verified = ?, honeypot = ?,
-           icon_url = coalesce(icon_url, ?), websites = coalesce(websites, ?), x_handle = coalesce(x_handle, ?), telegram = coalesce(telegram, ?),
+           icon_url = coalesce(nullif(icon_url, ''), ?), websites = coalesce(websites, ?), x_handle = coalesce(x_handle, ?), telegram = coalesce(telegram, ?),
            is_proxy = ?, has_mint = ?, has_pause = ?, has_blacklist = ?, has_upgrade = ?, owner = ?, owner_renounced = ?,
            total_supply = ?, decimals = ?, burned = ?, facts_at_ms = ?,
            dev = ?, dev_in = ?, dev_out_burn = ?, dev_out_contract = ?, dev_out_wallet = ?, dev_holds = ?, flows_to_block = ?, flows_at_ms = ?,
@@ -278,13 +303,18 @@ export const ALMOST_BONDED_PCT = 50;
 
 // The three Pons boards, GMGN style. "new": newest launches; "almost": still on the curve, fullest first;
 // "migrated": left the curve, most recent first. Each row is the same shape as readCoins.
-export async function readBoard(db: D1Like, board: Board, limit = 50) {
-  const where = {
-    new: "launch_block IS NOT NULL ORDER BY launch_block DESC",
-    almost: `bonded = 0 AND bond_pct >= ${ALMOST_BONDED_PCT} ORDER BY bond_pct DESC`,
-    migrated: "bonded = 1 ORDER BY bonded_ms DESC",
-  }[board];
-  const cas = await all<{ ca: string }>(db, `SELECT ca FROM coins WHERE ${where} LIMIT ?`, limit);
+// Almost bonded only lists coins inside CURVE_WINDOW_MS: older ones are not re-read, so their percent could be stale.
+export async function readBoard(db: D1Like, board: Board, limit = 50, now = Date.now()) {
+  const cas =
+    board === "new"
+      ? await all<{ ca: string }>(db, "SELECT ca FROM coins WHERE launch_block IS NOT NULL ORDER BY launch_block DESC LIMIT ?", limit)
+      : board === "almost"
+        ? await all<{ ca: string }>(
+            db,
+            "SELECT ca FROM coins WHERE bonded = 0 AND bond_pct >= ? AND launched_ms >= ? ORDER BY bond_pct DESC LIMIT ?",
+            ALMOST_BONDED_PCT, now - CURVE_WINDOW_MS, limit,
+          )
+        : await all<{ ca: string }>(db, "SELECT ca FROM coins WHERE bonded = 1 ORDER BY bonded_ms DESC LIMIT ?", limit);
   return readCoins(db, 0, limit, cas.map((r) => r.ca));
 }
 
@@ -305,7 +335,7 @@ export async function readCoins(db: D1Like, floor = 5_000, limit = 50, only?: st
     ca: c.ca,
     symbol: c.symbol,
     name: c.name,
-    icon: c.icon_url,
+    icon: c.icon_url || null,
     websites: c.websites ? (JSON.parse(c.websites) as string[]) : [],
     x: c.x_handle,
     dex: c.dex,
