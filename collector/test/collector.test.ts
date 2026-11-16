@@ -2,9 +2,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { devFlows, parseLaunch, LAUNCHER, LAUNCH_TOPIC, TRANSFER_TOPIC } from "../src/chain-reads.ts";
-import { pct, readCoins, runCollect } from "../src/collect-run.ts";
+import { pct, readBoard, readCoins, runCollect } from "../src/collect-run.ts";
 import type { RpcCall, RpcClient, RpcResult } from "../src/contract-facts.ts";
-import { parseDexTokens, parseGtInfo, parseGtPoolTokens, xHandle, type Sources } from "../src/market-sources.ts";
+import { parseDexTokens, parseGtInfo, parseGtMulti, parseGtPoolTokens, xHandle, type Sources } from "../src/market-sources.ts";
 import { openSqlite } from "../src/sqlite-adapter.ts";
 
 const OFF = "0x47b537f7c2c2183967fe5ba883291b8ada490db6";
@@ -104,6 +104,9 @@ test("full run on SQLite: launch found, market saved, deep check fills dev numbe
     async gtPoolTokens() {
       return [];
     },
+    async gtMulti() {
+      return new Map();
+    },
   };
   const stats = await runCollect({ db, rpc, sources, now: () => 10_000_000, gtListPages: 1 });
   assert.deepEqual(stats.errors, []);
@@ -144,6 +147,9 @@ test("a coin under the floor is only re-priced when it shows up among the busies
     async gtPoolTokens() {
       return [OTHER];
     },
+    async gtMulti() {
+      return new Map();
+    },
   };
   await runCollect({ db, rpc: fakeRpc({ out: [], got: [], contracts: [] }), sources, now: () => now, gtListPages: 1, deepCoins: 0 });
   const row = await db.prepare("SELECT mc_usd FROM coins WHERE ca = ?").bind(OTHER).first<{ mc_usd: number }>();
@@ -168,4 +174,48 @@ test("dev flows halve the block window when the node says a window holds over 10
   assert.ok(seen.every((s) => s <= 3_000_000));
   assert.equal(f.burn, BigInt(seen.length)); // every window counted once, none skipped
   assert.equal(seen.reduce((a, b) => a + b, 0), 9_999_999);
+});
+
+test("GeckoTerminal multi: curve percent, migrated flag and curve MC", () => {
+  const m = parseGtMulti({ data: [
+    { attributes: { address: OFF, symbol: "KIN", launchpad_details: { graduation_percentage: 38.96, completed: false }, fdv_usd: "12116.9" } },
+    { attributes: { address: DEV, symbol: "DONE", launchpad_details: { graduation_percentage: 100, completed: true, completed_at: "2026-10-06T12:48:03.000Z" }, market_cap_usd: "28188.4" } },
+  ] });
+  assert.deepEqual([m.get(OFF)?.bondPct, m.get(OFF)?.bonded, m.get(OFF)?.mcUsd], [38.96, false, 12116.9]);
+  assert.deepEqual([m.get(DEV)?.bonded, m.get(DEV)?.bondedMs, m.get(DEV)?.mcUsd], [true, Date.parse("2026-10-06T12:48:03.000Z"), 28188.4]);
+});
+
+test("a curve coin shows on Almost bonded with its curve MC, then on Migrated with its DEX MC", async () => {
+  const db = openSqlite(":memory:");
+  let curve = { pct: 72, done: false };
+  let dexMc: number | null = null;
+  const sources: Sources = {
+    async dexTokens(cas) {
+      return parseDexTokens(dexMc !== null && cas.includes(OFF) ? [{ dexId: "uniswap", pairAddress: "0xcc", baseToken: { address: OFF, symbol: "KIN" }, marketCap: dexMc, liquidity: { usd: 9000 } }] : []);
+    },
+    async gtInfo() {
+      return parseGtInfo({ data: { attributes: { holders: { count: 50, distribution_percentage: { top_10: "40" } } } } });
+    },
+    async gtPoolTokens() {
+      return [];
+    },
+    async gtMulti(cas) {
+      return parseGtMulti({ data: cas.includes(OFF) ? [{ attributes: { address: OFF, symbol: "KIN", launchpad_details: { graduation_percentage: curve.pct, completed: curve.done }, fdv_usd: String(12_000) } }] : [] });
+    },
+  };
+  const rpc = fakeRpc({ out: [], got: [], contracts: [OFF] });
+  await runCollect({ db, rpc, sources, now: () => 10_000_000, gtListPages: 1 });
+  const [almost] = await readBoard(db, "almost");
+  assert.deepEqual([almost?.ca, almost?.bondPct, almost?.bonded, almost?.mcUsd], [OFF, 72, false, 12_000]); // DexScreener had no pair: MC kept
+  assert.equal(almost?.holders, 50); // over the floor, so it got the deep check too
+  assert.equal((await readBoard(db, "new"))[0]?.ca, OFF);
+  assert.ok(almost?.launchedMs);
+
+  curve = { pct: 100, done: true };
+  dexMc = 30_000;
+  await runCollect({ db, rpc, sources, now: () => 10_000_000 + 10 * 60_000, gtListPages: 1 });
+  assert.equal((await readBoard(db, "almost")).length, 0);
+  const [migrated] = await readBoard(db, "migrated");
+  assert.deepEqual([migrated?.ca, migrated?.bonded, migrated?.mcUsd], [OFF, true, 30_000]);
+  db.close();
 });
