@@ -150,3 +150,22 @@ test("a coin under the floor is only re-priced when it shows up among the busies
   assert.equal(row?.mc_usd, 50_000);
   db.close();
 });
+
+test("dev flows halve the block window when the node says a window holds over 10,000 logs", async () => {
+  const seen: number[] = [];
+  const rpc: RpcClient = {
+    async batch(cs) {
+      return cs.map((c): RpcResult => {
+        const p = c.params[0] as any;
+        const span = Number(p.toBlock) - Number(p.fromBlock) + 1;
+        if (span > 3_000_000) return { ok: false, code: -32000, message: "logs matched by query exceeds limit of 10000" };
+        if (p.topics[1] === W(DEV)) seen.push(span);
+        return { ok: true, value: p.topics[1] === W(DEV) ? [{ topics: [TRANSFER_TOPIC, W(DEV), W(DEAD)], data: amount(1n) }] : [] };
+      });
+    },
+  };
+  const f = await devFlows(rpc, OFF, DEV, 0, 9_999_998, async () => new Map());
+  assert.ok(seen.every((s) => s <= 3_000_000));
+  assert.equal(f.burn, BigInt(seen.length)); // every window counted once, none skipped
+  assert.equal(seen.reduce((a, b) => a + b, 0), 9_999_999);
+});

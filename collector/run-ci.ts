@@ -27,7 +27,7 @@ const stats = await runCollect({
   now: Date.now,
   launchCalls: backfill ? 200 : 3,
   dexBatches: backfill ? 600 : 20,
-  deepCoins: backfill ? 60 : 30,
+  deepCoins: backfill ? 60 : 15, // ~140 coins at/above the floor, each re-checked hourly = ~12 per run
   log: (m) => console.log(`[${((Date.now() - t0) / 1000).toFixed(0)}s] ${m}`),
 });
 await db.prepare("UPDATE runs SET finished_ms = ?, stats = ? WHERE id = ?").bind(Date.now(), JSON.stringify(stats).slice(0, 4000), run?.id ?? 0).run();
