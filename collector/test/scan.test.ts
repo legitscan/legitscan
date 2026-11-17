@@ -64,3 +64,17 @@ test("scan: a brand-new coin is read from its launch form and checked at once, t
   assert.equal((await scanAnswer(CA, { ...env, now: NOW + SCAN_COOLDOWN_MS + 1 })).status, 429);
   db.close();
 });
+
+test("scan: a chain that does not answer is reported, and the site checks still run", async () => {
+  const db = openSqlite(":memory:");
+  await db.prepare("INSERT INTO coins (ca, found_via, found_ms, symbol, mc_usd, launch_block, launched_ms, websites) VALUES (?, 'pons', 1, 'NEW', 3000, 100, ?, ?)").bind(CA, NOW - 60_000, JSON.stringify(["https://new.fun"])).run();
+  const fetch: Fetcher = async (url) => {
+    if (url === PUBLIC_RPC) throw new TypeError("fetch failed");
+    if (url === "https://new.fun/") return new Response(`CA ${CA}`, { headers: { "content-type": "text/html" } });
+    return new Response("not found", { status: 404 });
+  };
+  const r = await scanAnswer(CA, { db, fetch, now: NOW, ip: "1.2.3.4" });
+  assert.match(String(r.body.launchForm), /^not read: /);
+  assert.equal((r.body.results as { kind: string; status: string }[]).find((x) => x.kind === "website")?.status, "pass");
+  db.close();
+});
