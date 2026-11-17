@@ -36,7 +36,9 @@ export async function scanAnswer(rawCa: string, env: ScanEnv): Promise<Answer> {
   if ((recent?.n ?? 0) >= SCANS_PER_HOUR) return { status: 429, body: { error: `At most ${SCANS_PER_HOUR} scans an hour. Stored results are still shown.` } };
   await env.db.prepare("INSERT INTO scans (ip_hash, at_ms) VALUES (?, ?)").bind(ipHash, env.now).run();
 
-  // The launch form, once per coin: 1-2 RPC calls.
+  // The launch form, once per coin: 1-2 RPC calls. Its outcome goes in the answer, so a chain that does not answer
+  // is visible instead of silent.
+  let launchForm = coin.launch_info_at_ms !== null ? "already read" : coin.launch_block === null ? "not a Pons launch" : "read";
   if (coin.launch_block !== null && coin.launch_info_at_ms === null) {
     const rpc = createRpcClient({ url: env.rpcUrl ?? PUBLIC_RPC, fetch: env.fetch, sleep: () => Promise.resolve() });
     try {
@@ -46,11 +48,12 @@ export async function scanAnswer(rawCa: string, env: ScanEnv): Promise<Answer> {
         .prepare("UPDATE coins SET launch_tx = coalesce(launch_tx, ?), launch_desc = ?, launch_website = ?, launch_x = ?, launch_telegram = ?, launch_github = ?, launch_info_at_ms = ? WHERE ca = ?")
         .bind(tx, form?.description ?? null, form?.website ?? null, form?.x ?? null, form?.telegram ?? null, form?.github ?? null, env.now, ca)
         .run();
-    } catch {
+    } catch (e) {
       // The chain did not answer: the checks below still run with what we know; the collector reads the form later.
+      launchForm = `not read: ${(e as Error).message}`.slice(0, 300);
     }
   }
   const results = await checkAndSave(env.db, ca, { fetch: env.fetch, now: env.now, skipGithub: true, maxPages: REQUEST_PAGES });
   await env.db.prepare("UPDATE check_queue SET wanted_ms = ? WHERE ca = ?").bind(env.now, ca).run();
-  return { status: 200, body: { ca, scanned: true, checkedMs: env.now, results } };
+  return { status: 200, body: { ca, scanned: true, checkedMs: env.now, launchForm, results } };
 }
