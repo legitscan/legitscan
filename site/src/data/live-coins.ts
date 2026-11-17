@@ -66,9 +66,9 @@ export type Stats = {
   legit: number
   legitPlus: number
   claims: number
-  views: number
-  viewsToday: number
-  viewsSince: string | null
+  tokenChecks: number
+  tokenChecksToday: number
+  tokenChecksSince: string | null
   latest: { website: LatestPass | null; x: LatestPass | null; github: LatestPass | null; dev: LatestPass | null }
 }
 
@@ -78,6 +78,12 @@ type Answer = { updatedMs: number | null; coins?: LiveCoin[]; coin?: LiveCoin; h
 export type ApiState = { loading: boolean; failed: boolean; notFound: boolean; data: Answer | null }
 
 // GET /api/... once per path. Errors become a state the page shows, never invented numbers.
+// A visitor checked a token (pasted its CA and pressed Check, or pressed Scan now): counted for /stats "Token checks".
+// keepalive, so it still goes out when the page navigates away right after. Failure is ignored: it is only a count.
+export function countCheck(ca: string) {
+  fetch(`/api/check/${ca.trim().toLowerCase()}`, { method: 'POST', keepalive: true }).catch(() => {})
+}
+
 export function useApi(path: string): ApiState {
   const [state, setState] = useState<ApiState>({ loading: true, failed: false, notFound: false, data: null })
   useEffect(() => {

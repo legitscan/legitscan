@@ -180,9 +180,9 @@ export async function readStats(db: D1Like, floor = 5_000, now = Date.now()) {
                  AND (EXISTS (SELECT 1 FROM checks k WHERE k.ca = w.ca AND k.kind IN ('x', 'githubca', 'dev') AND k.status = 'pass')
                    OR ((c.launch_x IS NOT NULL OR c.cg_x IS NOT NULL) AND EXISTS (SELECT 1 FROM checks k WHERE k.ca = w.ca AND k.kind = 'xmatch' AND k.status = 'pass')))) AS legit,
               (SELECT count(*) FROM claims) AS claims,
-              (SELECT coalesce(sum(n), 0) FROM coin_views) AS views,
-              (SELECT coalesce(sum(n), 0) FROM coin_views WHERE day = ?) AS views_today,
-              (SELECT min(day) FROM coin_views) AS views_since`,
+              (SELECT coalesce(sum(n), 0) FROM token_checks) AS token_checks,
+              (SELECT coalesce(sum(n), 0) FROM token_checks WHERE day = ?) AS token_checks_today,
+              (SELECT min(day) FROM token_checks) AS token_checks_since`,
     )
     .bind(floor, new Date(now).toISOString().slice(0, 10))
     .first<Record<string, number | string | null>>();
@@ -211,10 +211,10 @@ export async function readStats(db: D1Like, floor = 5_000, now = Date.now()) {
     legit: num("legit"), // Legit and Legit+
     legitPlus: num("legit_plus"),
     claims: num("claims"),
-    // Coin pages opened by visitors (coin-views.ts), repeats included; counted since viewsSince.
-    views: num("views"),
-    viewsToday: num("views_today"),
-    viewsSince: typeof n?.views_since === "string" ? n.views_since : null,
+    // Tokens checked by visitors (token-checks.ts), repeats included; counted since tokenChecksSince.
+    tokenChecks: num("token_checks"),
+    tokenChecksToday: num("token_checks_today"),
+    tokenChecksSince: typeof n?.token_checks_since === "string" ? n.token_checks_since : null,
     latest: { website: await latest("website"), x: await latest("x"), github: await latest("github"), dev: await latest("dev") },
   };
 }

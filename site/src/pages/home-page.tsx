@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router'
 import { FilmShot } from '@/components/film-shot'
 import { LiveBoards } from '@/components/live-boards'
 import { useReveal } from '@/components/use-reveal'
-import { useApi } from '@/data/live-coins'
+import { countCheck, useApi } from '@/data/live-coins'
 import { isCa, shortCa, since } from '@/format-coin'
 
 const WRAP = 'mx-auto w-full max-w-[1240px] px-4 md:px-6'
@@ -94,6 +94,7 @@ function Hero() {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (!isCa(ca)) return setErr('That is not a full contract address (0x and 40 characters).')
+    countCheck(ca)
     nav(`/coin/robinhood/${ca.trim().toLowerCase()}`)
   }
   return (

@@ -9,10 +9,10 @@ export function StatsPage() {
   const rows: [string, number | undefined, string][] = [
     [
       'Token checks',
-      s?.views,
-      s?.viewsSince
-        ? `Times a coin page was opened on this site. ${s.viewsToday.toLocaleString('en-US')} today, counted since ${s.viewsSince}. Bots and our own testing are not counted.`
-        : 'Times a coin page was opened on this site. Counting starts with the first visit. Bots and our own testing are not counted.',
+      s?.tokenChecks,
+      s?.tokenChecksSince
+        ? `A visitor pasted a contract address and pressed Check, or pressed Scan now on a coin. ${s.tokenChecksToday.toLocaleString('en-US')} today, counted since ${s.tokenChecksSince}. Bots and our own testing are not counted.`
+        : 'A visitor pasted a contract address and pressed Check, or pressed Scan now on a coin. Counting starts with the first check. Bots and our own testing are not counted.',
     ],
     ['Coins seen on Robinhood Chain', s?.coins, 'Every Pons launch plus coins from the busiest pools.'],
     ['At or above $5k market cap', s?.overFloor, 'These get the deep risk check.'],
