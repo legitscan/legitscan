@@ -116,6 +116,9 @@ test("full run on SQLite: launch found, market saved, deep check fills dev numbe
       return 2000;
     },
   };
+  // Out of time before the first coin: the deep stage starts none and leaves them for the next run.
+  const late = await runCollect({ db: openSqlite(":memory:"), rpc, sources, now: () => 10_000_000, gtListPages: 1, deepBudgetMs: -1 });
+  assert.deepEqual([late.deepChecked, late.deepErrors, late.marketFound], [0, 0, 1]);
   const stats = await runCollect({ db, rpc, sources, now: () => 10_000_000, gtListPages: 1 });
   assert.deepEqual(stats.errors, []);
   assert.equal(stats.launchesFound, 1);
