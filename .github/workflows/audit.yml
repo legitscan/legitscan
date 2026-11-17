@@ -1,0 +1,46 @@
+name: weekly second check
+
+# Once a week a second, plainer reader looks at every coin's website and compares with the collector (collector/audit.ts).
+# Disagreements go into one GitHub issue, which GitHub emails to the repo owner; nothing is written to D1.
+on:
+  schedule:
+    - cron: "17 1 * * 1" # Monday 01:17 UTC, 08:17 WIB
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: collector
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --omit=dev
+      - run: node audit.ts
+        env:
+          REPORT: ${{ runner.temp }}/audit-report.md
+      - name: Open, update or close the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPORT: ${{ runner.temp }}/audit-report.md
+        run: |
+          title="Weekly second check: coins where the two readers disagree"
+          open=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -s "$REPORT" ]; then
+            if [ -n "$open" ]; then gh issue edit "$open" --body-file "$REPORT" && gh issue comment "$open" --body "Updated by the run on $(date -u +%F)."
+            else gh issue create --title "$title" --body-file "$REPORT"; fi
+          elif [ -n "$open" ]; then
+            gh issue close "$open" --comment "The run on $(date -u +%F) agrees with the collector on every coin."
+          fi

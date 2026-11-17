@@ -67,11 +67,7 @@ export function CoinPage() {
           </ul>
           {data.devSignature && <SignatureProof sig={data.devSignature} />}
           {c.launchForm && <LaunchForm form={c.launchForm} />}
-          {c.legitLevel < 2 && (
-            <Link to={`/claim?ca=${c.ca}`} className="mt-2 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-accent hover:underline">
-              Your project? Send the tweet or sign with the launch wallet <ArrowRight size={14} aria-hidden="true" />
-            </Link>
-          )}
+          <NextStep coin={c} />
         </section>
 
         <section className="card p-5 md:p-6" aria-labelledby="risk-h">
@@ -215,6 +211,33 @@ function useScan(ca: string, reload: () => void): Scan {
     }
   }, [ca])
   return { state, note, run }
+}
+
+// For the team behind the coin: the one step that would move it up, in plain words. Owner, 17 Nov: "Ini koinmu?
+// Buktikan di sini" should say what is missing, not send everyone to the same form.
+function NextStep({ coin: c }: { coin: LiveCoin }) {
+  if (c.legitLevel === 2) return null
+  const handle = c.launchForm?.x ?? c.x
+  const from = handle ? `@${handle}` : "your project's X account"
+  if (c.checks.website?.status !== 'pass') {
+    return (
+      <p className="mt-3 border-l-2 border-line pl-4 text-sm text-muted">
+        <span className="font-medium text-ink">Your project?</span> Put the full address on your website, then press Scan now. A launchpad page
+        that lists many coins does not count.
+      </p>
+    )
+  }
+  return (
+    <div className="mt-3 border-l-2 border-line pl-4 text-sm text-muted">
+      <p>
+        <span className="font-medium text-ink">Your project?</span>{' '}
+        {c.legitLevel === 1 ? `For Legit+, post this address from ${from} and send us the tweet, or sign with the launch wallet.` : `Your site shows this address. Post it from ${from} and send us the tweet, or sign with the launch wallet.`}
+      </p>
+      <Link to={`/claim?ca=${c.ca}`} className="mt-1 inline-flex min-h-11 items-center gap-1.5 font-medium text-accent hover:underline">
+        Send the proof <ArrowRight size={14} aria-hidden="true" />
+      </Link>
+    </div>
+  )
 }
 
 function ScanLine({ scan }: { scan: Scan }) {
