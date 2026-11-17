@@ -99,7 +99,7 @@ export function MethodPage() {
           the identity is then real and the coin can still lose its liquidity. In our data from 10 to 16 Nov 2026, 5 of 31 tokens that had a
           website and an X account lost their liquidity anyway, and 4 of those 5 showed their address on their own site.
         </p>
-        <p>That is why risk sits in its own column: where the coin trades, what the owner can still change, what the dev wallet did, how thin the pool is, and how new the website's domain is (a warning under 7 days, from the registry's public RDAP record), and whether the site has a domain at all (a warning when it runs on free hosting like vercel.app).</p>
+        <p>That is why risk sits in its own column: where the coin trades, what the owner can still change, what the dev wallet did, how thin the pool is, and how new the website's domain is (a warning under 7 days, from the registry's public RDAP record), and whether the site has a domain at all (a warning when it runs on free hosting like vercel.app). A token whose name hides characters that change how it is displayed, or mixes look-alike letters from another alphabet, gets a warning and is shown as it is really written.</p>
       </Part>
     </main>
   )

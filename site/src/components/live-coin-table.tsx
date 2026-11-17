@@ -99,6 +99,8 @@ export function LegitMarks({ coin: c }: { coin: LiveCoin }) {
 
 export function RiskLine({ coin: c }: { coin: LiveCoin }) {
   const items: [string, boolean][] = []
+  if (c.nameTricks.includes('hidden')) items.push(['hidden characters in name', true])
+  if (c.nameTricks.includes('mixed')) items.push(['look-alike letters in name', true])
   if (c.powers?.length) items.push([`owner can ${c.powers.join(', ')}`, true])
   if (c.mcNotBacked) items.push(['MC not backed by liquidity', true])
   if (c.domainYoung && c.domainCreatedMs) items.push([`domain ${since(c.domainCreatedMs)} old`, true])
