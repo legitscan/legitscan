@@ -5,7 +5,9 @@ import { signAnswer } from '../../../collector/src/dev-sign.ts'
 import { scanAnswer } from '../../../collector/src/scan.ts'
 import { apiAnswer } from '../../../collector/src/read-coins.ts'
 
-type Ctx = { request: Request; env: { DB: D1Like; TURNSTILE_SECRET?: string }; waitUntil: (p: Promise<unknown>) => void }
+// RPC_URL: a keyed Robinhood Chain RPC (Alchemy). The public node answers Cloudflare with HTTP 429, so without it a scan
+// cannot read the Pons launch form; the owner sets it with `npx wrangler pages secret put RPC_URL --project-name legitscan`.
+type Ctx = { request: Request; env: { DB: D1Like; TURNSTILE_SECRET?: string; RPC_URL?: string }; waitUntil: (p: Promise<unknown>) => void }
 
 const json = (status: number, body: unknown, extra: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json; charset=utf-8', ...extra } })
@@ -27,7 +29,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
   const path = new URL(request.url).pathname.replace(/\/+$/, '')
   const scan = path.match(/^\/api\/scan\/(0x[0-9a-fA-F]{40})$/)
   if (scan) {
-    const { status, body } = await scanAnswer(scan[1], { db: env.DB, fetch: (u, i) => fetch(u, i), now: Date.now(), ip: request.headers.get('cf-connecting-ip') ?? 'unknown' })
+    const { status, body } = await scanAnswer(scan[1], { db: env.DB, fetch: (u, i) => fetch(u, i), now: Date.now(), ip: request.headers.get('cf-connecting-ip') ?? 'unknown', rpcUrl: env.RPC_URL })
     return json(status, body, { 'cache-control': 'no-store' })
   }
   if (path !== '/api/claim' && path !== '/api/sign') return json(404, { error: 'not found' })
