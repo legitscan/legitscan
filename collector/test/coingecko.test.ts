@@ -107,3 +107,24 @@ test("new team links void the old X account match and queue the coin", async () 
   assert.equal(q?.wanted_ms, 2000);
   db.close();
 });
+
+// 17 Nov: 117 listed coins waited for their page to be read, 56 of them with the CA already on their website. Only
+// those can still turn Legit through the page's X account, so they go first.
+test("CoinGecko pages: coins whose website shows the CA are read first", async () => {
+  const db = openSqlite(":memory:");
+  const BIG = "0x" + "1".repeat(40);
+  const SITE = "0x" + "2".repeat(40);
+  for (const [ca, mc] of [[BIG, 9e6], [SITE, 1e5]] as const) {
+    await db.prepare("INSERT INTO coins (ca, found_via, found_ms, mc_usd) VALUES (?, 'pons', 1, ?)").bind(ca, mc).run();
+    await saveChecks(db, ca, [{ kind: "coingecko", status: "pass", reason: "Listed", sourceUrl: `https://www.coingecko.com/en/coins/c${ca.slice(2, 4)}`, atMs: null }], 1);
+  }
+  await saveChecks(db, SITE, [{ kind: "website", status: "pass", reason: "ok", sourceUrl: null, atMs: null }], 1);
+  const asked: string[] = [];
+  const fetch: Fetcher = async (url) => {
+    asked.push(url);
+    return Response.json({ links: { homepage: [], twitter_screen_name: "" } });
+  };
+  assert.equal(await refreshCoingeckoLinks(db, fetch, "demo-key", Date.UTC(2026, 10, 17), 1), 1);
+  assert.match(asked[0], /\/coins\/c22\?/); // the small coin with its CA on its site, before the big one
+  db.close();
+});

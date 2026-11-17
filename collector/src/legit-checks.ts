@@ -13,11 +13,16 @@ export type CheckResult = { kind: CheckKind; status: CheckStatus; reason: string
 
 export const CHECK_UA = "legitscan-checker/0.1 (reads public project pages to find a token's contract address)";
 const MAX_BYTES = 3_000_000;
-const PAGES_PER_SITE = 14; // HTML + same-site scripts and JSON; OffRouter loads its CA from a JSON the bundle fetches
+// HTML + same-site scripts and JSON; OffRouter loads its CA from a JSON the bundle fetches. 17 Nov: own.money,
+// ignition.family, listed.exchange and scopl.live keep their CA in file 15 to 20, so 14 read them as a fail.
+const PAGES_PER_SITE = 20;
 // One coin's websites get this long in all, so a slow site cannot hold up a run (the collector has 20 minutes).
 const SITE_DEADLINE_MS = 25_000;
 const GITHUB_ACTIVE_MS = 30 * 24 * 3600_000;
-// ponytail: a page listing this many contracts is a launchpad or explorer page, not the project naming its own coin.
+// A page listing this many contracts may be a launchpad or explorer page, where a copy's address shows next to the
+// real one. It still counts when the site is named after the coin and no other coin on the page is named like the site
+// (ownListing): 17 Nov, 16 of 16 such fails were the project's own site (ostraagent.xyz "$OSTRA contract", a DEX's
+// token list, a footer link to its own token).
 const LISTING_PAGE_ADDRESSES = 12;
 
 const ADDRESS_ANY = /0x[0-9a-fA-F]{40}/g;
@@ -133,6 +138,27 @@ export function sameSiteRefs(text: string, pageUrl: string): string[] {
   return [...out];
 }
 
+// The site is named after the coin: "Ostra Agent" on ostraagent.xyz, "Golden Goose" on thegoldengoose.live, UFG on
+// ufg.finance. Names under 4 letters must equal the domain name, so "GG" does not match every domain with "gg" in it.
+export function siteNamed(url: string, names: string[]) {
+  const u = publicUrl(url);
+  const label = u ? squash(parseDomain(u.hostname, { allowPrivateDomains: true }).domainWithoutSuffix ?? "") : "";
+  if (!label) return false;
+  return names.map(squash).some((n) => {
+    if (n.length < 4) return n !== "" && n === label;
+    return label.includes(n) || (label.length >= 4 && n.includes(label));
+  });
+}
+
+// A listing page is the coin's own when the site is named after it and no other coin on that page could claim the
+// name too. A copy launched on a launchpad named like the coin (a fake "Pons" on ponsfamily.com) shows next to the real
+// one, so then neither counts. `namesOf` gives the ticker and name of the given contracts we know.
+export type SiteOwner = { names: string[]; namesOf: (cas: string[]) => Promise<string[][]> };
+async function ownListing(page: string, addresses: string[], ca: string, owner?: SiteOwner) {
+  if (!owner || !siteNamed(page, owner.names)) return false;
+  return !(await owner.namesOf(addresses.filter((a) => a !== ca))).some((names) => siteNamed(page, names));
+}
+
 export type SiteRead = {
   status: CheckStatus;
   reason: string;
@@ -150,7 +176,7 @@ export type SiteRead = {
 export const REQUEST_PAGES = 20;
 
 // Reads one coin's listed websites (at most 3) and the same-site files they load, looking for the full CA.
-export async function readSites(fetch: Fetcher, sites: string[], ca: string, pagesPerSite = PAGES_PER_SITE, clock: () => number = Date.now, maxPages = Infinity): Promise<SiteRead> {
+export async function readSites(fetch: Fetcher, sites: string[], ca: string, pagesPerSite = PAGES_PER_SITE, clock: () => number = Date.now, maxPages = Infinity, owner?: SiteOwner): Promise<SiteRead> {
   const deadline = clock() + SITE_DEADLINE_MS;
   const want = ca.toLowerCase();
   const links = { xHandles: new Set<string>(), tweets: new Set<string>(), github: new Set<string>(), githubSeen: new Set<string>() };
@@ -198,8 +224,8 @@ export async function readSites(fetch: Fetcher, sites: string[], ca: string, pag
       l.githubSeen.forEach((g) => links.githubSeen.add(g));
       const lower = page.body.toLowerCase();
       if (!foundAt && lower.includes(want)) {
-        const distinct = new Set((page.body.match(ADDRESS_ANY) ?? []).map((a) => a.toLowerCase())).size;
-        if (distinct >= LISTING_PAGE_ADDRESSES) listing ??= page.url;
+        const addresses = [...new Set((page.body.match(ADDRESS_ANY) ?? []).map((a) => a.toLowerCase()))];
+        if (addresses.length >= LISTING_PAGE_ADDRESSES && !(await ownListing(page.url, addresses, want, owner))) listing ??= page.url;
         else foundAt = page.url;
       }
       if (/javascript|html|json/.test(page.type) || /\.(js|json)(\?|$)/.test(url) || url === start.href) {
@@ -385,8 +411,8 @@ export function checkXMatch(site: SiteRead, launchX: string | null, listingX: st
 }
 
 // All three checks for one coin.
-export async function checkCoin(o: { fetch: Fetcher; ca: string; websites: string[]; listedHandle: string | null; launchHandle?: string | null; cgHandle?: string | null; claimedTweets: string[]; now: number; githubToken?: string; xBearer?: string; skipGithub?: boolean; maxPages?: number }) {
-  const site = await readSites(o.fetch, o.websites, o.ca, PAGES_PER_SITE, Date.now, o.maxPages);
+export async function checkCoin(o: { fetch: Fetcher; ca: string; websites: string[]; listedHandle: string | null; launchHandle?: string | null; cgHandle?: string | null; claimedTweets: string[]; now: number; githubToken?: string; xBearer?: string; skipGithub?: boolean; maxPages?: number; owner?: SiteOwner }) {
+  const site = await readSites(o.fetch, o.websites, o.ca, PAGES_PER_SITE, Date.now, o.maxPages, o.owner);
   const website: CheckResult = { kind: "website", status: site.status, reason: site.reason, sourceUrl: site.foundAt, atMs: null };
   const x = await checkX(o.fetch, site, o.ca, o.claimedTweets, o.listedHandle ?? o.launchHandle ?? o.cgHandle ?? null, o.xBearer);
   const xmatch = checkXMatch(site, o.launchHandle ?? null, o.listedHandle, o.cgHandle ?? null);
