@@ -22,6 +22,10 @@ CREATE TABLE IF NOT EXISTS coins (
   launch_telegram TEXT,
   launch_github   TEXT,
   launch_info_at_ms INTEGER,
+  -- The website and X account on the coin's CoinGecko page (coingecko.ts), read about monthly for listed coins.
+  cg_website      TEXT,
+  cg_x            TEXT,
+  cg_links_at_ms  INTEGER,
 
   -- Market, from DexScreener /tokens/v1 (30 tokens per call). market_at_ms set even when DexScreener had no pair.
   symbol          TEXT,
