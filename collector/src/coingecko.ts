@@ -5,7 +5,7 @@
 // virtual-protocol, whose own site shows no Robinhood address). It does not prove uniqueness: copies get pages of their
 // own (commander-vrax, -2, -3, -4), so a ticker with several listed contracts is said out loud. Never a "fail": new
 // coins wait one to four weeks for a listing (OffRouter: launched 6 Oct, listed by 3 Nov).
-import { saveChecks } from "./check-store.ts";
+import { newTeamLinks, saveChecks } from "./check-store.ts";
 import type { D1Like } from "./d1-types.ts";
 import type { Fetcher } from "./http-json.ts";
 import { CHECK_UA, type CheckResult } from "./legit-checks.ts";
@@ -69,8 +69,8 @@ export async function refreshCoingecko(db: D1Like, fetch: Fetcher, apiKey: strin
 // The links on a listed coin's CoinGecko page: its website and X account. Owner, 17 Nov: they count like the Pons launch
 // form (both are typed by the team; the website check still has to find the address there). MOWCAT has neither a launch
 // form nor paid DexScreener info, but its CoinGecko page links mowcat.xyz and @mowcatmeme.
-// One call per coin, so a few per run and each coin about once a month (157 listed coins, 17 Nov: well inside the
-// Demo key's 10,000 calls a month next to the hourly list).
+// One call per coin: 20 a run, each coin about once a month (157 listed coins on 17 Nov, read in about 8 runs; then
+// ~5 a day, well inside the Demo key's 10,000 calls a month next to the hourly list).
 export const CG_LINKS_EVERY_MS = 30 * 24 * 3600_000;
 
 export function parseCoingeckoLinks(json: unknown): { website: string | null; x: string | null } {
@@ -82,7 +82,8 @@ export function parseCoingeckoLinks(json: unknown): { website: string | null; x:
   return { website, x };
 }
 
-// Never-read coins first, then the oldest, biggest first. A coin whose links changed is queued for a legit check.
+// Never-read coins first, then the oldest, biggest first. A coin whose links changed is queued for a legit check, its
+// old X account match voided.
 export async function refreshCoingeckoLinks(db: D1Like, fetch: Fetcher, apiKey: string, now: number, limit: number) {
   const due = (
     await db
@@ -107,9 +108,7 @@ export async function refreshCoingeckoLinks(db: D1Like, fetch: Fetcher, apiKey: 
     if (!res.ok) throw new Error(`CoinGecko coin ${id} answered HTTP ${res.status}`);
     const { website, x } = parseCoingeckoLinks(await res.json());
     await db.prepare("UPDATE coins SET cg_website = ?, cg_x = ?, cg_links_at_ms = ? WHERE ca = ?").bind(website, x, now, c.ca).run();
-    if (website !== c.cg_website || x !== c.cg_x) {
-      await db.prepare("INSERT INTO check_queue (ca, wanted_ms) VALUES (?, ?) ON CONFLICT (ca) DO UPDATE SET wanted_ms = excluded.wanted_ms").bind(c.ca, now).run();
-    }
+    if (website !== c.cg_website || x !== c.cg_x) await newTeamLinks(db, c.ca, now);
     read++;
   }
   return read;

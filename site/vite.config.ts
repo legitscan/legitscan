@@ -7,5 +7,6 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { '@': path.resolve(import.meta.dirname, './src') } },
   // Local dev only: /api comes from dev-api.ts (same code as functions/api, reading the collector's SQLite copy).
-  server: { proxy: { '/api': 'http://127.0.0.1:8788' } },
+  // API_TARGET=https://legitscan.pages.dev reads the live API instead, to check a UI change against real coins.
+  server: { proxy: { '/api': { target: process.env.API_TARGET ?? 'http://127.0.0.1:8788', changeOrigin: true } } },
 })

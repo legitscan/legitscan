@@ -21,7 +21,7 @@ export function HomePage() {
         </Head>
         <div className="reveal"><LiveBoards /></div>
         <Link to="/coins" className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-accent underline-offset-4 hover:underline">
-          All coins over $5k market cap <ArrowRight size={15} aria-hidden="true" />
+          Every coin and its proof <ArrowRight size={15} aria-hidden="true" />
         </Link>
       </section>
 

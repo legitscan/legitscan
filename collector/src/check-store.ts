@@ -43,6 +43,17 @@ export async function saveChecks(db: D1Like, ca: string, results: CheckResult[],
     .run();
 }
 
+// New links typed by the team (a Pons launch form, a CoinGecko page) make the stored X account match stale: it was
+// made without them, and the Legit level trusts it (17 Nov: ZEAL's form names @zealthemascot, its site @ZEALZdotfun, yet
+// a match from before the form was read made it Legit). Void it and queue the coin, so the next run compares again.
+export async function newTeamLinks(db: D1Like, ca: string, now: number) {
+  await db
+    .prepare("UPDATE checks SET status = 'none', reason = ?, checked_ms = ?, passed_ms = NULL WHERE ca = ? AND kind = 'xmatch'")
+    .bind("New links from the launch form or CoinGecko page. Compared again at the next check.", now, ca)
+    .run();
+  await db.prepare("INSERT INTO check_queue (ca, wanted_ms) VALUES (?, ?) ON CONFLICT (ca) DO UPDATE SET wanted_ms = excluded.wanted_ms").bind(ca, now).run();
+}
+
 // Which coins the collector checks this run: coins someone claimed first, then never-checked, then the stalest past
 // their recheck time. Only coins with a website (listing, launch form or CoinGecko page; nothing to read otherwise), and either claimed,
 // at/above the floor, or launched in the last 3 days and never looked at.

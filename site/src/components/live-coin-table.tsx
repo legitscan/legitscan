@@ -1,10 +1,10 @@
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
-import { CheckMark } from '@/components/check-mark'
+import { LegitStatus } from '@/components/legit-status'
 import { coinName, subName, type LiveCoin } from '@/data/live-coins'
 import { shortCa, since, usd } from '@/format-coin'
 
-const GRID = 'md:grid md:grid-cols-[minmax(0,2fr)_84px_80px_80px_72px_64px_72px_minmax(0,1.4fr)_56px] md:items-center md:gap-4'
+const GRID = 'md:grid md:grid-cols-[minmax(0,2fr)_112px_80px_80px_72px_64px_72px_minmax(0,1.4fr)_56px] md:items-center md:gap-4'
 const HEAD: [string, string?][] = [['Coin'], ['Legit'], ['MC', 'text-right'], ['Liquidity', 'text-right'], ['Holders', 'text-right'], ['Top 10', 'text-right'], ['Dev coins', 'text-right'], ['Risk'], ['Age', 'text-right']]
 
 // Legit checks (website, X, GitHub) next to market and risk facts. Rows stack under 768px.
@@ -70,7 +70,7 @@ function Cell({ label, children, className = '' }: { label: string; children: Re
 function ListCells({ coin: c }: { coin: LiveCoin }) {
   return (
     <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 md:contents">
-      <div className="col-span-2 md:col-span-1"><LegitMarks coin={c} /></div>
+      <div className="col-span-2 flex items-baseline gap-2 md:col-span-1 md:block"><span className="label md:hidden">Legit</span><LegitStatus coin={c} /></div>
       <Cell label="MC">{c.mcUsd !== null ? usd(c.mcUsd) : 'no data'}</Cell>
       <Cell label="Liquidity" className={c.mcNotBacked ? 'text-warn' : ''}>{c.liqUsd !== null ? usd(c.liqUsd) : 'no data'}</Cell>
       <Cell label="Holders">{c.holders ?? '–'}</Cell>
@@ -79,21 +79,6 @@ function ListCells({ coin: c }: { coin: LiveCoin }) {
       <div className="col-span-2 md:col-span-1"><RiskLine coin={c} /></div>
       <Cell label="Age" className="hidden md:block">{since(c.launchedMs ?? c.pairCreatedMs)}</Cell>
     </div>
-  )
-}
-
-// Website, X, GitHub marks; "legit" in words once website and X both pass.
-export function LegitMarks({ coin: c }: { coin: LiveCoin }) {
-  return (
-    <span className="flex items-center gap-2">
-      <span className="label md:hidden">Legit</span>
-      <CheckMark value={c.checks.website?.status ?? null} label="CA on website" />
-      <CheckMark value={c.checks.x?.status ?? null} label="CA posted on X" />
-      {c.checks.dev?.status === 'pass' && <CheckMark value="pass" label="Signed by the launch wallet" />}
-      {c.checks.coingecko?.status === 'pass' && <span className="font-mono text-xs text-muted" title="Listed on CoinGecko">CG</span>}
-      <CheckMark value={c.checks.github?.status ?? null} label="GitHub active" />
-      {c.legit && <span className="font-mono text-xs text-pass">{c.legitLevel === 2 ? 'legit+' : 'legit'}</span>}
-    </span>
   )
 }
 
