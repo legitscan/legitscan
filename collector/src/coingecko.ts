@@ -51,7 +51,17 @@ export async function refreshCoingecko(db: D1Like, fetch: Fetcher, apiKey: strin
   if (last && now - last.at_ms < COINGECKO_EVERY_MS) return null;
   const list = await readCoingeckoList(fetch, apiKey);
   const coins = (await db.prepare("SELECT ca FROM coins WHERE mc_usd >= ?").bind(floor).all<{ ca: string }>()).results;
-  for (const { ca } of coins) await saveChecks(db, ca, [coingeckoResult(ca, list)], now, false);
+  // One read of the stored answers, then writes only for coins whose answer changed. Each D1 call from the runner takes
+  // ~0.2 s: asking coin by coin made this stage 6.5 minutes on 558 coins (17 Nov), most of it for unchanged rows.
+  const stored = new Map(
+    (await db.prepare("SELECT ca, status, reason, source_url, at_ms FROM checks WHERE kind = 'coingecko'").all<{ ca: string; status: string; reason: string; source_url: string | null; at_ms: number | null }>()).results.map((r) => [r.ca, r]),
+  );
+  for (const { ca } of coins) {
+    const r = coingeckoResult(ca, list);
+    const old = stored.get(ca);
+    if (old && old.status === r.status && old.reason === r.reason && old.source_url === r.sourceUrl && old.at_ms === r.atMs) continue;
+    await saveChecks(db, ca, [r], now, false);
+  }
   await db.prepare("INSERT INTO source_times (name, at_ms) VALUES ('coingecko', ?) ON CONFLICT (name) DO UPDATE SET at_ms = excluded.at_ms").bind(now).run();
   return { listed: list.size, compared: coins.length };
 }
