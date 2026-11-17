@@ -1,0 +1,11 @@
+# Cloudflare Pages project "legitscan" (legitscan.pages.dev). functions/ becomes the /api routes.
+# Deploy: npm run deploy (only after the owner says yes).
+name = "legitscan"
+pages_build_output_dir = "./dist"
+compatibility_date = "2026-11-01"
+
+# Filled by the collector (GitHub Actions). The site only reads it.
+[[d1_databases]]
+binding = "DB"
+database_name = "legitscan"
+database_id = "98985652-0272-43b3-b8ce-0da4db323f08"
