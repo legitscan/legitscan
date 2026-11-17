@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkAndSave, dueForChecks } from "../src/check-store.ts";
+import { checkAndSave, dueForChecks, newTeamLinks, saveChecks } from "../src/check-store.ts";
 import { CG_LINKS_EVERY_MS, coingeckoResult, COINGECKO_EVERY_MS, parseCoingeckoLinks, parseCoingeckoList, refreshCoingecko, refreshCoingeckoLinks } from "../src/coingecko.ts";
 import type { Fetcher } from "../src/http-json.ts";
 import { apiAnswer } from "../src/read-coins.ts";
@@ -88,5 +88,22 @@ test("MOWCAT: CoinGecko page links count like the launch form, so website + same
   assert.equal(coin.checks.website.status, "pass");
   assert.equal(coin.checks.xmatch.reason, "The CoinGecko page and the website both name @mowcatmeme.");
   assert.equal(coin.legitLevel, 1);
+  db.close();
+});
+
+// ZEAL, 17 Nov: the X match passed before its launch form was read, and the form names another account.
+test("new team links void the old X account match and queue the coin", async () => {
+  const db = openSqlite(":memory:");
+  const CA = "0x" + "d".repeat(40);
+  await db.prepare("INSERT INTO coins (ca, found_via, found_ms, mc_usd, launch_x) VALUES (?, 'pons', 1, 4e5, 'zealthemascot')").bind(CA).run();
+  const pass = { kind: "xmatch" as const, status: "pass" as const, reason: "The market listing and the website both name @ZEALZdotfun.", sourceUrl: null, atMs: null };
+  await saveChecks(db, CA, [{ kind: "website", status: "pass", reason: "ok", sourceUrl: null, atMs: null }, pass], 1000);
+  assert.equal((((await apiAnswer(db, `/api/coin/${CA}`, 2000)).body as any).coin).legitLevel, 1); // the stale match counts
+  await newTeamLinks(db, CA, 2000);
+  const coin = ((await apiAnswer(db, `/api/coin/${CA}`, 2000)).body as any).coin;
+  assert.deepEqual([coin.checks.xmatch.status, coin.legitLevel], ["none", 0]);
+  assert.deepEqual((await dueForChecks(db, 5_000, 2000, 10)).map((r) => r.ca), []); // no website listed: nothing to read
+  const q = await db.prepare("SELECT wanted_ms FROM check_queue WHERE ca = ?").bind(CA).first<{ wanted_ms: number }>();
+  assert.equal(q?.wanted_ms, 2000);
   db.close();
 });
