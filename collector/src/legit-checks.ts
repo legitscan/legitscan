@@ -21,6 +21,9 @@ const GITHUB_ACTIVE_MS = 30 * 24 * 3600_000;
 const LISTING_PAGE_ADDRESSES = 12;
 
 const ADDRESS_ANY = /0x[0-9a-fA-F]{40}/g;
+// A link with a contract address in it is the token's page on some platform (ponsfamily.com/launchpad/0x..., an
+// explorer), not the project's own site: such a page always shows the address. 17 Nov: NOVAAI's CoinGecko "website".
+const ADDRESS_IN_LINK = /0x[0-9a-fA-F]{40}/;
 const X_RESERVED = new Set(["home", "i", "intent", "share", "search", "explore", "hashtag", "settings", "login", "signup", "messages", "notifications", "tos", "privacy"]);
 const GH_RESERVED = new Set(["about", "features", "pricing", "login", "join", "orgs", "sponsors", "topics", "marketplace", "explore", "settings", "apps", "enterprise", "collections", "site", "contact"]);
 
@@ -156,7 +159,10 @@ export async function readSites(fetch: Fetcher, sites: string[], ca: string, pag
   let listing: string | null = null;
   let timedOut = false;
   const problems: string[] = [];
-  const starts = sites.map((s) => publicUrl(s)).filter((u): u is URL => u !== null).slice(0, 3);
+  const starts = sites
+    .map((s) => publicUrl(s))
+    .filter((u): u is URL => u !== null && !ADDRESS_IN_LINK.test(u.pathname + u.search))
+    .slice(0, 3);
   if (!starts.length) return { status: "none", reason: "No website listed for this coin.", foundAt: null, pagesRead: 0, xHandles: [], tweets: [], github: [], githubSeen: [] };
 
   let spent = 0;

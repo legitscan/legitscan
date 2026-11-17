@@ -20,10 +20,15 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Changed
 
+- Launch forms of coins found before 17 Nov are looked up 50 a run instead of 10 (ZOLVA waited behind 101 coins).
 - The collector checks 100 coins a run instead of 25, eight at a time (17 Nov: 223 coins were waiting).
 
 ### Fixed
 
+- A website link with a contract address in it (a launchpad or explorer page for the token, like NOVAAI's CoinGecko
+  "website") is no longer read as the project's site: such a page always shows the address.
+- The GeckoTerminal stage stops after 6 minutes, so the legit checks always get their turn: on 17 Nov it took 15.5 of
+  the run's 20 minutes.
 - The home page said none of the board's coins had passed the legit checks, and that data refreshed every 5 minutes.
   The collector runs about once an hour.
 
