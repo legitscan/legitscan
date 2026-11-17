@@ -48,6 +48,12 @@ export function CoinPage() {
         </div>
       </header>
 
+      {c.nameTricks.length > 0 && (
+        <p className="mt-6 border-l-2 border-warn pl-4 text-sm text-warn" role="note">
+          {c.nameTricks.map((t) => NAME_TRICK_TEXT[t]).join(' ')}
+        </p>
+      )}
+
       <ScanNotice className="mt-6" />
 
       <div className="mt-8 grid gap-4 lg:grid-cols-2">
@@ -160,6 +166,11 @@ const KINDS: [CheckKind, string][] = [
 ]
 const KIND_NAME: Record<CheckKind, string> = { website: 'Website check', x: 'X check', xmatch: 'X account match', github: 'GitHub check', githubca: 'CA on GitHub', dev: 'Dev sign', coingecko: 'CoinGecko' }
 const STATUS_WORD = { pass: 'passed', fail: 'failed', none: 'nothing to check yet', error: 'could not read' } as const
+
+const NAME_TRICK_TEXT = {
+  hidden: 'This token\'s name holds hidden characters that change how it is displayed, so elsewhere it can look like another token (one shows as USDT). Shown here as it is really written.',
+  mixed: 'This token\'s name mixes look-alike letters from different alphabets, so it can pass for another name.',
+} as const
 
 const LEVEL_TEXT = {
   0: 'Not proven yet. Legit needs the website to show this address, plus the X account from the Pons launch form matching the one the site links. Legit+ needs a tweet, the GitHub README or the launch wallet\'s signature to carry the address too.',

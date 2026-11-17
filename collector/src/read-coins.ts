@@ -3,6 +3,7 @@ import { freeHost } from "./legit-checks.ts";
 // function bundles only this file and what it needs (no RPC code; from viem only the signature check in dev-sign.ts).
 import type { D1Like } from "./d1-types.ts";
 import { signMessageAnswer } from "./dev-sign.ts";
+import { cleanName, nameTricks } from "./name-tricks.ts";
 
 const all = async <T>(db: D1Like, sql: string, ...params: unknown[]) => (await db.prepare(sql).bind(...params).all<T>()).results;
 const marks = (values: unknown[]) => values.map(() => "?").join(",");
@@ -40,7 +41,7 @@ export async function readBoard(db: D1Like, board: Board, limit = 50, now = Date
 // 5000 launches through the launch_block index, so the cost stays flat as the table grows. Says nothing about which
 // contract is the real one: that needs the website check.
 export async function readCopies(db: D1Like, now = Date.now(), limit = 5) {
-  return all<{ ticker: string; contracts: number }>(
+  const rows = await all<{ ticker: string; contracts: number }>(
     db,
     `SELECT upper(symbol) AS ticker, count(*) AS contracts FROM
        (SELECT symbol, launched_ms FROM coins WHERE launch_block IS NOT NULL ORDER BY launch_block DESC LIMIT 5000)
@@ -48,6 +49,7 @@ export async function readCopies(db: D1Like, now = Date.now(), limit = 5) {
      GROUP BY ticker HAVING contracts > 1 ORDER BY contracts DESC, ticker LIMIT ?`,
     now - CURVE_WINDOW_MS, limit,
   );
+  return rows.map((r) => ({ ...r, ticker: cleanName(r.ticker) ?? "" }));
 }
 
 export const DOMAIN_YOUNG_DAYS = 7;
@@ -69,8 +71,9 @@ export async function readCoins(db: D1Like, floor = 5_000, limit = 50, only?: st
     const level = legitLevel(checks.get(c.ca), c.launch_x ?? null);
     return {
       ca: c.ca,
-      symbol: c.symbol,
-      name: c.name,
+      symbol: cleanName(c.symbol),
+      name: cleanName(c.name),
+      nameTricks: nameTricks(c.symbol, c.name), // "hidden" / "mixed": see name-tricks.ts
       icon: c.icon_url || null,
       websites: c.websites ? (JSON.parse(c.websites) as string[]) : [],
       x: c.x_handle,
@@ -189,7 +192,7 @@ export async function readStats(db: D1Like, floor = 5_000) {
       )
       .bind(kind)
       .first<Record<string, any>>();
-    return r ? { ca: r.ca, symbol: r.symbol, name: r.name, reason: r.reason, sourceUrl: r.source_url, checkedMs: r.checked_ms, passedMs: r.passed_ms } : null;
+    return r ? { ca: r.ca, symbol: cleanName(r.symbol), name: cleanName(r.name), reason: r.reason, sourceUrl: r.source_url, checkedMs: r.checked_ms, passedMs: r.passed_ms } : null;
   };
   return {
     coins: n?.coins ?? 0,

@@ -9,6 +9,11 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ## [Unreleased]
 
+### Added
+
+- Name tricks: a token name with hidden characters that change how it is displayed (two tokens show as USDT this
+  way) or with look-alike letters from another alphabet gets a warning, and is shown as it is really written.
+
 ## [0.2.0] - 2026-11-17
 
 ### Added
