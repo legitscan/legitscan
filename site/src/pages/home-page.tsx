@@ -129,6 +129,11 @@ function Hero() {
             </div>
             {err && <p id="ca-err" className="mt-2 pl-5 text-sm text-fail">{err}</p>}
           </form>
+          {/* Owner, 17 Nov: say plainly, where everyone sees it, that the project is early and grows with its users. */}
+          <p className="mt-6 max-w-[480px] border-l-2 border-accent pl-4 text-body">
+            <span className="block text-lg font-semibold text-ink">This project grows with you.</span>
+            We are early. Every coin you check and every proof a team sends in shows us where to dig next.
+          </p>
           <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 pl-1 text-sm">
             <Link to="/coins" className="font-medium text-ink underline-offset-4 hover:underline">Browse coins</Link>
             <Link to="/claim" className="text-body underline-offset-4 hover:underline">Claim your coin</Link>
