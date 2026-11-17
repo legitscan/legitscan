@@ -18,6 +18,10 @@ Release steps: move the Unreleased entries under a new version and date, set the
   the Legit level (MOWCAT has no launch form and no paid DexScreener info).
 - The Pons boards mark legit and legit+ coins.
 
+### Changed
+
+- The collector checks 100 coins a run instead of 25, eight at a time (17 Nov: 223 coins were waiting).
+
 ### Fixed
 
 - The home page said none of the board's coins had passed the legit checks, and that data refreshed every 5 minutes.

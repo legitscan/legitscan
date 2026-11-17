@@ -361,10 +361,10 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
   if (o.checkFetch) {
     const due = await dueForChecks(o.db, floor, o.now(), o.checkCoins ?? 25);
     const env = { fetch: o.checkFetch, now: o.now(), githubToken: o.githubToken, xBearer: o.xBearer };
-    // Four at a time: each coin is a handful of requests to different hosts.
-    for (let i = 0; i < due.length; i += 4) {
+    // Eight at a time: each coin is a handful of requests to different hosts (GitHub: ~4 calls a coin, 1,000 an hour).
+    for (let i = 0; i < due.length; i += 8) {
       await Promise.all(
-        due.slice(i, i + 4).map(async ({ ca }) => {
+        due.slice(i, i + 8).map(async ({ ca }) => {
           try {
             await checkAndSave(o.db, ca, env);
             s.legitChecked++;
