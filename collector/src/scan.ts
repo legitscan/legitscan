@@ -14,7 +14,7 @@ export const SCAN_COOLDOWN_MS = 10 * 60_000;
 export const SCANS_PER_HOUR = 30;
 type Answer = { status: number; body: Record<string, unknown> };
 
-async function sha256(text: string) {
+export async function sha256(text: string) {
   const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }

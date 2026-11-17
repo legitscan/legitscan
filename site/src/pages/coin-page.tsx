@@ -5,7 +5,7 @@ import { CaCopyButton } from '@/components/ca-copy-button'
 import { CheckMark } from '@/components/check-mark'
 import { ScanNotice } from '@/components/scan-notice'
 import { CoinIcon } from '@/components/live-coin-table'
-import { coinName, migratedMs, useApi, type CheckKind, type CheckRow, type LiveCoin } from '@/data/live-coins'
+import { coinName, countCheck, migratedMs, useApi, type CheckKind, type CheckRow, type LiveCoin } from '@/data/live-coins'
 import { isCa, pctText, shortCa, since, usd } from '@/format-coin'
 
 export function CoinPage() {
@@ -184,7 +184,8 @@ function notChecked(c: LiveCoin, kind: CheckKind) {
   return 'Waits for the website check.'
 }
 
-type Scan = { state: 'idle' | 'running' | 'done' | 'rested' | 'failed'; note: string; run: () => void }
+// run: the automatic scan when a page opens unchecked. check: the visitor pressed Scan now, which also counts on /stats.
+type Scan = { state: 'idle' | 'running' | 'done' | 'rested' | 'failed'; note: string; run: () => void; check: () => void }
 
 // POST /api/scan/{ca}: the server reads the website (and the Pons launch form) now, then the page reloads the coin.
 function useScan(ca: string, reload: () => void): Scan {
@@ -210,7 +211,11 @@ function useScan(ca: string, reload: () => void): Scan {
       setNote('Scan failed. Try again in a minute.')
     }
   }, [ca])
-  return { state, note, run }
+  const check = useCallback(() => {
+    countCheck(ca)
+    run()
+  }, [ca, run])
+  return { state, note, run, check }
 }
 
 // For the team behind the coin: the one step that would move it up, in plain words. Owner, 17 Nov: "Ini koinmu?
@@ -250,7 +255,7 @@ function ScanLine({ scan }: { scan: Scan }) {
   }[scan.state]
   return (
     <div className="mt-3 flex flex-wrap items-center gap-3">
-      <button type="button" onClick={scan.run} disabled={scan.state === 'running'} className="btn min-h-11 border border-line px-4 text-sm disabled:opacity-60">
+      <button type="button" onClick={scan.check} disabled={scan.state === 'running'} className="btn min-h-11 border border-line px-4 text-sm disabled:opacity-60">
         {scan.state === 'running' ? 'Scanning…' : 'Scan now'}
       </button>
       <p className={`text-sm ${scan.state === 'failed' ? 'text-fail' : 'text-muted'}`} role="status" aria-live="polite">{text}</p>

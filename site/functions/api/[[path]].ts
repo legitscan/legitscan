@@ -3,6 +3,7 @@ import type { D1Like } from '../../../collector/src/d1-types.ts'
 import { claimAnswer } from '../../../collector/src/claim.ts'
 import { signAnswer } from '../../../collector/src/dev-sign.ts'
 import { scanAnswer } from '../../../collector/src/scan.ts'
+import { tokenCheckAnswer } from '../../../collector/src/token-checks.ts'
 import { apiAnswer } from '../../../collector/src/read-coins.ts'
 
 // RPC_URL: a keyed Robinhood Chain RPC (Alchemy). The public node answers Cloudflare with HTTP 429, so without it a scan
@@ -23,13 +24,19 @@ export const onRequestGet = async ({ request, env, waitUntil }: Ctx) => {
   return res
 }
 
-// POST /api/scan/{ca} (check a coin now), /api/claim (a tweet) and /api/sign (a dev signature). Same-site forms, so no CORS header: other sites cannot
+// POST /api/scan/{ca} (check a coin now), /api/check/{ca} (a visitor checked a token, for /stats), /api/claim (a tweet) and /api/sign (a dev signature). Same-site forms, so no CORS header: other sites cannot
 // post from a visitor's browser.
 export const onRequestPost = async ({ request, env }: Ctx) => {
   const path = new URL(request.url).pathname.replace(/\/+$/, '')
   const scan = path.match(/^\/api\/scan\/(0x[0-9a-fA-F]{40})$/)
   if (scan) {
     const { status, body } = await scanAnswer(scan[1], { db: env.DB, fetch: (u, i) => fetch(u, i), now: Date.now(), ip: request.headers.get('cf-connecting-ip') ?? 'unknown', rpcUrl: env.RPC_URL })
+    return json(status, body, { 'cache-control': 'no-store' })
+  }
+  const check = path.match(/^\/api\/check\/(0x[0-9a-fA-F]{40})$/)
+  if (check) {
+    const h = request.headers
+    const { status, body } = await tokenCheckAnswer(check[1], { db: env.DB, now: Date.now(), ip: h.get('cf-connecting-ip') ?? 'unknown', userAgent: h.get('user-agent') ?? '', origin: h.get('origin') ?? h.get('referer') ?? '' })
     return json(status, body, { 'cache-control': 'no-store' })
   }
   if (path !== '/api/claim' && path !== '/api/sign') return json(404, { error: 'not found' })

@@ -7,6 +7,13 @@ export function StatsPage() {
   const { loading, failed, data } = useApi('/api/stats')
   const s = data?.stats
   const rows: [string, number | undefined, string][] = [
+    [
+      'Token checks',
+      s?.tokenChecks,
+      s?.tokenChecksSince
+        ? `A visitor pasted a contract address and pressed Check, or pressed Scan now on a coin. ${s.tokenChecksToday.toLocaleString('en-US')} today, counted since ${s.tokenChecksSince}. Bots and our own testing are not counted.`
+        : 'A visitor pasted a contract address and pressed Check, or pressed Scan now on a coin. Counting starts with the first check. Bots and our own testing are not counted.',
+    ],
     ['Coins seen on Robinhood Chain', s?.coins, 'Every Pons launch plus coins from the busiest pools.'],
     ['At or above $5k market cap', s?.overFloor, 'These get the deep risk check.'],
     ['Coins with legit checks run', s?.checked, 'Coins whose market listing names a website.'],

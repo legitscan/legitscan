@@ -4,7 +4,7 @@ import { Link, useNavigate } from 'react-router'
 import { FilmShot } from '@/components/film-shot'
 import { LiveBoards } from '@/components/live-boards'
 import { useReveal } from '@/components/use-reveal'
-import { useApi } from '@/data/live-coins'
+import { countCheck, useApi } from '@/data/live-coins'
 import { isCa, shortCa, since } from '@/format-coin'
 
 const WRAP = 'mx-auto w-full max-w-[1240px] px-4 md:px-6'
@@ -41,8 +41,8 @@ export function HomePage() {
         n="02"
         name="X account"
         title="The account it links has to post it."
-        body="The X handle comes from the website, never from a search. Then a tweet from that exact account has to carry the same address. Replies and quotes from other people do not count."
-        link={['/method#x', 'Why the handle comes from the site']}
+        body="The X handle comes from the website, never from a search. Then a tweet from that exact account has to carry the same address. Replies and quotes from other people do not count. For now the team sends us that tweet on the claim page. Later we read it through the X API, so nobody has to send it in."
+        link={['/claim', 'Send your tweet on the claim page']}
         flip
         bg
       >
@@ -94,6 +94,7 @@ function Hero() {
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (!isCa(ca)) return setErr('That is not a full contract address (0x and 40 characters).')
+    countCheck(ca)
     nav(`/coin/robinhood/${ca.trim().toLowerCase()}`)
   }
   return (
@@ -128,6 +129,11 @@ function Hero() {
             </div>
             {err && <p id="ca-err" className="mt-2 pl-5 text-sm text-fail">{err}</p>}
           </form>
+          {/* Owner, 17 Nov: say plainly, where everyone sees it, that the project is early and grows with its users. */}
+          <p className="mt-6 max-w-[480px] border-l-2 border-accent pl-4 text-body">
+            <span className="block text-lg font-semibold text-ink">This project grows with you.</span>
+            We are early. Every coin you check and every proof a team sends in shows us where to dig next.
+          </p>
           <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 pl-1 text-sm">
             <Link to="/coins" className="font-medium text-ink underline-offset-4 hover:underline">Browse coins</Link>
             <Link to="/claim" className="text-body underline-offset-4 hover:underline">Claim your coin</Link>
@@ -253,7 +259,7 @@ function Copies() {
 function NotClaimed() {
   const points = [
     ['Legit is not safe.', 'A proven address tells you who made the coin. It does not tell you what they will do with it.'],
-    ['We cannot read X freely.', 'A tweet reaches us from the dev, the community or a market listing. We check it ourselves, but we do not search all of X.'],
+    ['We cannot read X freely yet.', 'For now a tweet reaches us from the claim page, the project website or a market listing. We check it ourselves, but we do not search all of X. Reading it through the X API comes later.'],
     ['A fake project can pass.', 'Someone can build a site, an account and a token together. The identity is then real, and the risk column has to speak.'],
   ]
   return (
