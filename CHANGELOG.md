@@ -11,9 +11,12 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Added
 
-- Stats: "Token checks" first. Every time a coin page is opened on the site, repeats included; bots and localhost
-  testing left out, and one visitor counts at most 300 a day (D1 write budget). Starts at zero on the day it goes live
-  (migration 0007, `coin_views`).
+- Stats: "Token checks" first. Counts each time a visitor pastes a CA and presses Check (home page, coins page search)
+  or presses Scan now on a coin, repeats included. Opening a coin page from a list or a link is not a check. Bots and
+  localhost testing are left out, and one visitor counts at most 300 a day (D1 write budget). Starts at zero on the
+  day it goes live (migration 0007, `token_checks`).
+- Coins page: search by ticker, name or contract address. A full address gets a Check button that opens its page,
+  also for coins under $5k that the list leaves out.
 - Tests on every pull request (`.github/workflows/test.yml`): the collector's tests, edge cases from real sites
   included, and the site build. A red check means do not merge yet.
 - Weekly second check (`.github/workflows/audit.yml`, `collector/audit.ts`): a plainer, deeper reader looks at every

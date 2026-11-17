@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
+import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { LiveCoinTable } from '@/components/live-coin-table'
 import { SectionHead } from '@/components/section-head'
-import { useApi, type LiveCoin } from '@/data/live-coins'
-import { since } from '@/format-coin'
+import { countCheck, useApi, type LiveCoin } from '@/data/live-coins'
+import { isCa, since } from '@/format-coin'
 import { ScanNotice } from '@/components/scan-notice'
 
 const MC = {
@@ -36,16 +36,31 @@ export function CoinsPage() {
   const [mc, setMc] = useState<McKey>('all')
   const [sort, setSort] = useState<SortKey>('mc')
   const [page, setPage] = useState(0)
+  const [q, setQ] = useState('')
+  const nav = useNavigate()
   // Off by default: a clone on a $2k pool can show a $64T MC (fake "BTC", 16 Nov) and would top every MC sort.
   const [showUnbacked, setShowUnbacked] = useState(false)
 
   const all = data?.coins ?? []
   const unbacked = all.filter((c) => c.mcNotBacked).length
-  // Everything but the proof filter, so each proof tab can show how many coins it holds.
+  // Everything but the proof filter, so each proof tab can show how many coins it holds. The search matches the
+  // ticker, the name or any part of the contract address.
+  const needle = q.trim().toLowerCase().replace(/^\$/, '')
   const base = useMemo(() => {
     const [, lo, hi] = MC[mc]
-    return all.filter((c) => c.mcUsd !== null && c.mcUsd >= lo && c.mcUsd < hi).filter((c) => showUnbacked || !c.mcNotBacked)
-  }, [all, mc, showUnbacked])
+    return all
+      .filter((c) => c.mcUsd !== null && c.mcUsd >= lo && c.mcUsd < hi)
+      .filter((c) => showUnbacked || !c.mcNotBacked)
+      .filter((c) => !needle || [c.symbol, c.name, c.ca].some((v) => v?.toLowerCase().includes(needle)))
+  }, [all, mc, showUnbacked, needle])
+  // A full address goes to its coin page, listed here or not (coins under $5k too), and counts as a token check.
+  const fullCa = isCa(q.trim())
+  const check = (e: FormEvent) => {
+    e.preventDefault()
+    if (!fullCa) return
+    countCheck(q)
+    nav(`/coin/robinhood/${q.trim().toLowerCase()}`)
+  }
   const list = useMemo(
     () =>
       base.filter(PROOF[proof][1]).sort((a, b) =>
@@ -57,7 +72,7 @@ export function CoinsPage() {
       ),
     [base, proof, sort],
   )
-  useEffect(() => setPage(0), [proof, mc, sort, showUnbacked])
+  useEffect(() => setPage(0), [proof, mc, sort, showUnbacked, needle])
   const pages = Math.max(1, Math.ceil(list.length / PAGE_SIZE))
   const shown = list.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
@@ -70,7 +85,24 @@ export function CoinsPage() {
 
       <ScanNotice className="mb-8" />
 
-      <div role="tablist" aria-label="Proof" className="flex gap-6 border-b border-line">
+      <form onSubmit={check} role="search" className="mb-6 flex max-w-[640px] items-center gap-2" noValidate>
+        <label className="flex min-h-12 flex-1 items-center gap-2 rounded-[10px] border border-line-2 bg-surface px-3 focus-within:border-accent/60">
+          <Search size={16} className="shrink-0 text-muted" aria-hidden="true" />
+          <span className="sr-only">Search by ticker, name or contract address</span>
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Ticker, name or contract address"
+            className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-faint"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </label>
+        {fullCa && <button type="submit" className="btn btn-dark shrink-0">Check</button>}
+      </form>
+
+      <div role="tablist" aria-label="Proof" className="flex flex-wrap gap-x-5 border-b border-line md:gap-x-6">
         {(Object.keys(PROOF) as ProofKey[]).map((k) => (
           <button
             key={k}
@@ -104,7 +136,9 @@ export function CoinsPage() {
             <Pager page={page} pages={pages} total={list.length} onPage={(p) => { setPage(p); window.scrollTo({ top: 0 }) }} />
           </>
         ) : (
-          <div className="card p-8 text-center text-muted">No coins match these filters.</div>
+          <div className="card p-8 text-center text-muted">
+            {fullCa ? 'This address is not in the list above $5k. Press Check to open its page.' : 'No coins match these filters.'}
+          </div>
         )}
       </div>
     </main>

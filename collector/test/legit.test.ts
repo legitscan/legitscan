@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkAndSave, dueForChecks, PASSED_RECHECK_MS, RECHECK_MS, saveChecks } from "../src/check-store.ts";
 import { claimAnswer, CLAIMS_PER_HOUR } from "../src/claim.ts";
-import { viewAnswer, VIEWS_PER_DAY } from "../src/coin-views.ts";
+import { CHECKS_PER_DAY, tokenCheckAnswer } from "../src/token-checks.ts";
 import { checkCoin, checkXMatch, ownerMatches, siteNamed, pageLinks, parseOembed, projectHandle, publicUrl, freeHost, REQUEST_PAGES, readDomainCreated, readSites, registrableDomain } from "../src/legit-checks.ts";
 import type { Fetcher } from "../src/http-json.ts";
 import { apiAnswer, legitLevel } from "../src/read-coins.ts";
@@ -352,24 +352,25 @@ test("the hourly run reads 20 files a site (own.money keeps its CA in file 15 to
   assert.equal((await readSites(fetch, ["https://deep.example/"], CA, 14)).status, "fail"); // the old 14
 });
 
-// Owner, 17 Nov: /stats should show that people use the site, and every open counts, repeats included. Bots, our own
-// localhost testing and coins we do not list are not counted; one visitor counts at most VIEWS_PER_DAY a day.
-test("coin page views: every open counts, capped per visitor a day, shown on /stats", async () => {
+// Owner, 17 Nov: /stats shows how often visitors check a token (paste a CA and press Check, or Scan now), repeats
+// included. Bots, our own localhost testing and coins we do not list are not counted; one visitor counts at most
+// CHECKS_PER_DAY a day.
+test("token checks: every check counts, capped per visitor a day, shown on /stats", async () => {
   const db = openSqlite(":memory:");
   await db.prepare("INSERT INTO coins (ca, found_via, found_ms) VALUES (?, 'pons', 1)").bind(CA).run();
   const env = { db, now: NOW, ip: "1.2.3.4", userAgent: "Mozilla/5.0 Chrome/130", origin: "https://legitscan.pages.dev" };
-  assert.equal((await viewAnswer(CA, env)).body.counted, true);
-  assert.equal((await viewAnswer(CA.toUpperCase().replace("0X", "0x"), env)).body.counted, true); // same visitor again: counts
-  assert.equal((await viewAnswer(CA, { ...env, ip: "5.6.7.8" })).body.counted, true);
-  assert.equal((await viewAnswer(CA, { ...env, now: NOW + 86_400_000 })).body.counted, true); // the next day
-  assert.equal((await viewAnswer(OTHER, { ...env, ip: "9.9.9.9" })).body.counted, false); // not a coin we list
-  assert.equal((await viewAnswer(CA, { ...env, ip: "9.9.9.9", userAgent: "Twitterbot/1.0" })).body.counted, false);
-  assert.equal((await viewAnswer(CA, { ...env, ip: "9.9.9.9", origin: "http://localhost:4301" })).body.counted, false);
+  assert.equal((await tokenCheckAnswer(CA, env)).body.counted, true);
+  assert.equal((await tokenCheckAnswer(CA.toUpperCase().replace("0X", "0x"), env)).body.counted, true); // same visitor again
+  assert.equal((await tokenCheckAnswer(CA, { ...env, ip: "5.6.7.8" })).body.counted, true);
+  assert.equal((await tokenCheckAnswer(CA, { ...env, now: NOW + 86_400_000 })).body.counted, true); // the next day
+  assert.equal((await tokenCheckAnswer(OTHER, { ...env, ip: "9.9.9.9" })).body.counted, false); // not a coin we list
+  assert.equal((await tokenCheckAnswer(CA, { ...env, ip: "9.9.9.9", userAgent: "Twitterbot/1.0" })).body.counted, false);
+  assert.equal((await tokenCheckAnswer(CA, { ...env, ip: "9.9.9.9", origin: "http://localhost:4301" })).body.counted, false);
   const stats = ((await apiAnswer(db, "/api/stats", NOW)).body as any).stats;
-  assert.deepEqual([stats.views, stats.viewsToday, stats.viewsSince], [4, 3, "2026-11-17"]);
+  assert.deepEqual([stats.tokenChecks, stats.tokenChecksToday, stats.tokenChecksSince], [4, 3, "2026-11-17"]);
 
-  for (let i = 0; i < VIEWS_PER_DAY + 5; i++) await viewAnswer(CA, { ...env, ip: "7.7.7.7" });
+  for (let i = 0; i < CHECKS_PER_DAY + 5; i++) await tokenCheckAnswer(CA, { ...env, ip: "7.7.7.7" });
   const capped = ((await apiAnswer(db, "/api/stats", NOW)).body as any).stats;
-  assert.equal(capped.viewsToday, 3 + VIEWS_PER_DAY); // a reload loop stops counting at the cap
+  assert.equal(capped.tokenChecksToday, 3 + CHECKS_PER_DAY); // a loop stops counting at the cap
   db.close();
 });
