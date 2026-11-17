@@ -1,15 +1,11 @@
 import { ArrowRight } from 'lucide-react'
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { CoinTable } from '@/components/coin-table'
 import { FilmShot } from '@/components/film-shot'
+import { LiveBoards } from '@/components/live-boards'
 import { useReveal } from '@/components/use-reveal'
-import { coins, copycats } from '@/data/example-coins'
-import { ago, isCa } from '@/format-coin'
-
-const verified = coins.filter((c) => c.status === 'verified').sort((a, b) => a.ageHours - b.ageHours)
-const pending = coins.filter((c) => c.status === 'pending')
-const revoked = coins.filter((c) => c.status === 'revoked')
+import { useApi } from '@/data/live-coins'
+import { isCa, shortCa, since } from '@/format-coin'
 
 const WRAP = 'mx-auto w-full max-w-[1240px] px-4 md:px-6'
 
@@ -20,35 +16,28 @@ export function HomePage() {
       <Hero />
 
       <section className={`${WRAP} py-20 md:py-28`}>
-        <Head kicker="Newly verified" title="Tech coins that just proved their address." example>
-          Website, X account and contract all point at each other. Newest first.
+        <Head kicker="Live from the chain" title="New, almost bonded, migrated.">
+          Every Pons launch on Robinhood Chain, read from the chain every 5 minutes. Market facts only: none of these coins has passed the legit checks yet.
         </Head>
-        <div className="reveal"><CoinTable coins={verified} /></div>
+        <div className="reveal"><LiveBoards /></div>
         <Link to="/coins" className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-accent underline-offset-4 hover:underline">
-          All verified coins <ArrowRight size={15} aria-hidden="true" />
+          All coins over $5k market cap <ArrowRight size={15} aria-hidden="true" />
         </Link>
       </section>
 
       <Chapter
         id="website"
-        film="website"
         n="01"
         name="Website"
         title="The website has to show it."
         body="We open the project's own site and look for the full contract address. Pages that load it later get read too. A copy can borrow the name and the logo. It cannot put its address on the real site."
         link={['/method#website', 'How the website check works']}
       >
-        <Proof rows={[
-          ['GET', 'lumen-agent.example'],
-          ['found', '0x7c3a91e0…c8e5b19d', true],
-          ['where', 'footer, "Contract"'],
-          ['checked', '4 min ago'],
-        ]} />
+        <LatestProof kind="website" />
       </Chapter>
 
       <Chapter
         id="x"
-        film="xaccount"
         n="02"
         name="X account"
         title="The account it links has to post it."
@@ -57,40 +46,22 @@ export function HomePage() {
         flip
         bg
       >
-        <Proof rows={[
-          ['site links', '@lumenagent'],
-          ['tweet by', '@lumenagent', true],
-          ['tweet holds', '0x7c3a91e0…c8e5b19d', true],
-          ['if deleted', 'mark comes off'],
-        ]} />
+        <LatestProof kind="x" />
       </Chapter>
 
       <Chapter
         id="copies"
-        film="copies"
         n="03"
         name="Copycats"
         title="One real contract. The rest are copies."
         body="A tech coin that gets attention gets cloned within hours, same ticker and same picture. Only one of them is on the project's website. We show which one, and list the rest as copies."
-        link={['/coins', 'See copies caught today']}
+        link={['/coins', 'Browse the coin list']}
       >
-        <div className="pbox p-4">
-          <div className="label mb-3">Same ticker, other contract</div>
-          <ul className="space-y-2 font-mono text-sm">
-            {copycats.map((c) => (
-              <li key={c.ticker} className="flex justify-between gap-6">
-                <span className="text-accent">${c.ticker}</span>
-                <span className="text-body">1 real, {c.copies} copies</span>
-              </li>
-            ))}
-          </ul>
-          <p className="label mt-3">Example data</p>
-        </div>
+        <Copies />
       </Chapter>
 
       <Chapter
         id="risk"
-        film="risk"
         n="04"
         name="Risk"
         title="A real address can still rug."
@@ -109,22 +80,6 @@ export function HomePage() {
         </div>
       </Chapter>
 
-      <section className={`${WRAP} py-20 md:py-28`}>
-        <Head kicker="Live board" title="What changed in the last hour." example />
-        <div className="grid gap-4 md:grid-cols-2">
-          <Panel kicker="Waiting for proof" title="Half way there">
-            {pending.map((c) => (
-              <Row key={c.ca} to={`/coin/${c.chain}/${c.ca}`} left={`$${c.ticker}`} right={ago(c.checkedMinAgo)} note={c.note} />
-            ))}
-          </Panel>
-          <Panel kicker="Lost proof" title="Checks that stopped passing">
-            {revoked.map((c) => (
-              <Row key={c.ca} to={`/coin/${c.chain}/${c.ca}`} left={`$${c.ticker}`} right={ago(c.checkedMinAgo)} note={c.note} warn />
-            ))}
-          </Panel>
-        </div>
-      </section>
-
       <NotClaimed />
       <Builders />
       <Close />
@@ -142,11 +97,13 @@ function Hero() {
     nav(`/coin/robinhood/${ca.trim().toLowerCase()}`)
   }
   return (
-    <section className="relative flex flex-col md:min-h-[calc(100svh-68px)] md:justify-center">
-      <FilmShot name="hero" className="aspect-[16/10] md:absolute md:inset-0 md:aspect-auto" position="70% center" />
+    <section className="relative flex min-h-[calc(100svh-68px)] flex-col justify-end md:justify-center">
+      <FilmShot name="hero" className="phone-backdrop hero-film !absolute inset-x-0 top-0 h-[56%] md:inset-0 md:h-full" position="70% center" />
+      {/* Phone veil: the glass mark stays clear at the top, the text over the salt flat sits on near-white. */}
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(251,252,252,0)_0%,rgba(251,252,252,0)_26%,rgba(251,252,252,0.65)_40%,rgba(251,252,252,0.92)_54%)] md:hidden" />
       <div className="pointer-events-none absolute inset-0 hidden bg-[linear-gradient(90deg,rgba(251,252,252,0.94)_0%,rgba(251,252,252,0.82)_34%,rgba(251,252,252,0)_62%)] md:block" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-40 bg-gradient-to-b from-transparent to-bg md:block" />
-      <div className={`${WRAP} relative py-10 md:py-24`}>
+      <div className={`${WRAP} relative pb-10 pt-48 md:py-24`}>
         <div className="max-w-[560px]">
           <div className="label">Built for Robinhood Chain</div>
           <h1 className="display mt-4 text-[44px] md:text-[clamp(3rem,5.4vw,4.9rem)]">Tech coins with a proven address.</h1>
@@ -172,7 +129,7 @@ function Hero() {
             {err && <p id="ca-err" className="mt-2 pl-5 text-sm text-fail">{err}</p>}
           </form>
           <div className="mt-5 flex flex-wrap items-center gap-x-6 gap-y-2 pl-1 text-sm">
-            <Link to="/coins" className="font-medium text-ink underline-offset-4 hover:underline">Browse verified coins</Link>
+            <Link to="/coins" className="font-medium text-ink underline-offset-4 hover:underline">Browse coins</Link>
             <Link to="/claim" className="text-body underline-offset-4 hover:underline">Claim your coin</Link>
           </div>
         </div>
@@ -193,7 +150,7 @@ function Hero() {
   )
 }
 
-function Head({ kicker, title, children, example = false }: { kicker: string; title: string; children?: ReactNode; example?: boolean }) {
+function Head({ kicker, title, children }: { kicker: string; title: string; children?: ReactNode }) {
   return (
     <div className="reveal mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
       <div className="max-w-2xl">
@@ -201,94 +158,95 @@ function Head({ kicker, title, children, example = false }: { kicker: string; ti
         <h2 className="display mt-3 text-[34px] md:text-[clamp(2rem,3vw,2.6rem)]">{title}</h2>
         {children && <p className="mt-3 text-body text-pretty">{children}</p>}
       </div>
-      {example && <div className="label shrink-0">Example data</div>}
     </div>
   )
 }
 
-// Two chapter looks, alternated like Rushr: `bg` = the still fills the section and fades into the page at top and
-// bottom, text on the empty side; default = the still is the top of a card (uncropped 16:9) with the proof under it.
-function Chapter({ id, film, n, name, title, body, link, flip = false, bg = false, children }: { id: string; film: string; n: string; name: string; title: string; body: string; link: [string, string]; flip?: boolean; bg?: boolean; children: ReactNode }) {
-  const text = (
-    <>
-      <div className="font-mono text-sm"><span className="text-faint">{n}</span> <span className="ml-2 text-accent">{name}</span></div>
-      <h2 className="display mt-4 text-[34px] md:text-[clamp(2.1rem,3.2vw,2.8rem)]">{title}</h2>
-      <p className="mt-4 max-w-[460px] leading-relaxed text-body text-pretty">{body}</p>
-    </>
-  )
-  const more = (
-    <Link to={link[0]} className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-accent underline-offset-4 hover:underline">
-      {link[1]} <ArrowRight size={15} aria-hidden="true" />
-    </Link>
-  )
-  if (bg) {
-    const veil = flip
-      ? 'bg-[linear-gradient(270deg,rgba(251,252,252,0.95)_0%,rgba(251,252,252,0.8)_38%,rgba(251,252,252,0)_66%)]'
-      : 'bg-[linear-gradient(90deg,rgba(251,252,252,0.95)_0%,rgba(251,252,252,0.8)_38%,rgba(251,252,252,0)_66%)]'
-    return (
-      <section id={id} className="chapter-bg relative scroll-mt-20 md:min-h-[min(84svh,780px)]">
-        <FilmShot name={film} className="film-fade aspect-[16/9] md:absolute md:inset-0 md:aspect-auto" position={flip ? '20% center' : '80% center'} />
-        <div className={`pointer-events-none absolute inset-0 hidden md:block ${veil}`} />
-        <div className={`${WRAP} relative flex py-10 md:min-h-[min(84svh,780px)] md:items-center md:py-24`}>
-          <div className={`reveal max-w-[460px] ${flip ? 'md:ml-auto' : ''}`}>
-            {text}
-            <div className="mt-6">{children}</div>
-            {more}
-          </div>
-        </div>
-      </section>
-    )
-  }
+// One chapter: the claim on one side, the live proof card on the other. Owner, 17 Nov: the glass check stays in the
+// hero and the closing scene only; here the data is the picture. `bg` = a faint panel band, every other chapter.
+function Chapter({ id, n, name, title, body, link, flip = false, bg = false, children }: { id: string; n: string; name: string; title: string; body: string; link: [string, string]; flip?: boolean; bg?: boolean; children: ReactNode }) {
   return (
-    <section id={id} className={`chapter-box ${WRAP} scroll-mt-20 py-16 md:py-24`}>
-      <div className="grid items-center gap-8 md:grid-cols-[1fr_1.15fr] md:gap-16">
+    <section id={id} className={`scroll-mt-20 ${bg ? 'border-y border-line bg-panel' : ''}`}>
+      <div className={`${WRAP} grid items-center gap-8 py-16 md:grid-cols-[1fr_1fr] md:gap-16 md:py-24`}>
         <div className={`reveal ${flip ? 'md:order-2' : ''}`}>
-          {text}
-          {more}
+          <div className="font-mono text-sm"><span className="text-faint">{n}</span> <span className="ml-2 text-accent">{name}</span></div>
+          <h2 className="display mt-4 text-[34px] md:text-[clamp(2.1rem,3.2vw,2.8rem)]">{title}</h2>
+          <p className="mt-4 max-w-[460px] leading-relaxed text-body text-pretty">{body}</p>
+          <Link to={link[0]} className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-accent underline-offset-4 hover:underline">
+            {link[1]} <ArrowRight size={15} aria-hidden="true" />
+          </Link>
         </div>
-        <div className={`card reveal overflow-hidden ${flip ? 'md:order-1' : ''}`}>
-          <FilmShot name={film} className="aspect-[16/9] [&_img]:!animate-none" />
-          <div className="border-t border-line">{children}</div>
-        </div>
+        <div className={`reveal ${flip ? 'md:order-1' : ''}`}>{children}</div>
       </div>
     </section>
   )
 }
 
-function Proof({ rows }: { rows: [string, string, boolean?][] }) {
-  return (
-    <dl className="pbox grid grid-cols-[96px_1fr] gap-x-4 gap-y-2 p-4 font-mono text-[13px] leading-relaxed">
-      {rows.map(([k, v, ok]) => (
-        <div key={k} className="contents">
-          <dt className="text-muted">{k}</dt>
-          <dd className={ok ? 'text-accent' : 'text-ink'}>{v}{ok && ' ✓'}</dd>
-        </div>
-      ))}
-    </dl>
+// The latest coin that really passed this check, from /api/stats, with the page or tweet that proves it.
+function LatestProof({ kind }: { kind: 'website' | 'x' }) {
+  const { loading, failed, data } = useApi('/api/stats')
+  const st = data?.stats
+  const p = st?.latest[kind]
+  const row = (k: string, v: ReactNode, ok = false) => (
+    <div key={k} className="contents">
+      <dt className="text-muted">{k}</dt>
+      <dd className={`min-w-0 truncate ${ok ? 'text-accent' : 'text-ink'}`}>{v}{ok && ' ✓'}</dd>
+    </div>
   )
-}
-
-function Panel({ kicker, title, children }: { kicker: string; title: string; children: ReactNode }) {
   return (
-    <div className="card reveal p-6">
-      <div className="label">{kicker}</div>
-      <h3 className="display mt-2 text-2xl">{title}</h3>
-      <ul className="mt-4 divide-y divide-line">{children}</ul>
+    <div className="pbox p-4">
+      <div className="label mb-3">{kind === 'website' ? 'Latest website pass' : 'Latest X pass'}</div>
+      {loading ? (
+        <p className="text-sm text-muted">Loading from the checks…</p>
+      ) : failed || !st ? (
+        <p className="text-sm text-fail">Could not load. Try again in a minute.</p>
+      ) : !p ? (
+        <p className="text-sm text-muted">
+          {kind === 'x' ? 'No coin has passed the X check yet. It needs a tweet from the account the site links.' : 'No coin has passed the website check yet.'}
+        </p>
+      ) : (
+        <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-4 gap-y-2 font-mono text-[13px] leading-relaxed">
+          {row('coin', <Link to={`/coin/robinhood/${p.ca}`} className="hover:underline">${p.symbol ?? shortCa(p.ca)}</Link>)}
+          {row('found', shortCa(p.ca), true)}
+          {p.sourceUrl && row(kind === 'x' ? 'tweet' : 'where', <a href={p.sourceUrl} target="_blank" rel="noopener noreferrer nofollow" className="hover:underline">{p.sourceUrl.replace(/^https?:\/\/(www\.)?/, '')}</a>)}
+          {row('checked', `${since(p.checkedMs)} ago`)}
+        </dl>
+      )}
+      {st && (
+        <p className="label mt-3">
+          {kind === 'website' ? `${st.websitePass} of ${st.checked} checked coins show their CA on their site` : `${st.xPass} coins proven on X so far`}
+        </p>
+      )}
     </div>
   )
 }
 
-function Row({ to, left, right, note, warn = false }: { to: string; left: string; right: string; note?: string; warn?: boolean }) {
+// Tickers launched more than once on Pons in the last 3 days, from /api/copies. Real counts; which contract is the
+// real one waits for the website check, so the box does not pick one.
+function Copies() {
+  const { loading, failed, data } = useApi('/api/copies')
+  const copies = data?.copies ?? []
   return (
-    <li>
-      <Link to={to} className="block py-3.5 hover:opacity-80">
-        <div className="flex justify-between font-mono text-sm">
-          <span className={warn ? 'text-fail' : 'text-accent'}>{left}</span>
-          <span className="text-muted">{right}</span>
-        </div>
-        {note && <p className="mt-1 text-sm text-body">{note}</p>}
-      </Link>
-    </li>
+    <div className="pbox p-4">
+      <div className="label mb-3">Same ticker, several contracts, last 3 days</div>
+      {loading ? (
+        <p className="text-sm text-muted">Loading from the chain…</p>
+      ) : failed ? (
+        <p className="text-sm text-fail">Could not load. Try again in a minute.</p>
+      ) : copies.length === 0 ? (
+        <p className="text-sm text-muted">No repeated ticker right now.</p>
+      ) : (
+        <ul className="space-y-2 font-mono text-sm">
+          {copies.map((c) => (
+            <li key={c.ticker} className="flex justify-between gap-6">
+              <span className="truncate text-accent">${c.ticker}</span>
+              <span className="shrink-0 text-body">{c.contracts} contracts</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {data?.updatedMs ? <p className="label mt-3">Pons launches, updated {since(data.updatedMs)} ago</p> : null}
+    </div>
   )
 }
 
@@ -345,7 +303,7 @@ function Close() {
       <div className={`${WRAP} relative pt-24 text-center md:pt-32`}>
         <h2 className="display reveal mx-auto max-w-2xl text-[38px] md:text-[clamp(2.4rem,4vw,3.6rem)]">Check the address before you buy.</h2>
         <div className="reveal mt-7 flex justify-center">
-          <Link to="/coins" className="btn btn-dark">Browse verified coins</Link>
+          <Link to="/coins" className="btn btn-dark">Browse coins</Link>
         </div>
       </div>
     </section>

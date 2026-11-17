@@ -5,9 +5,12 @@ import { useEffect } from 'react'
 import '@/index.css'
 import { SiteFooter } from '@/components/site-footer'
 import { SiteNav } from '@/components/site-nav'
+import { ClaimPage } from '@/pages/claim-page'
 import { CoinPage } from '@/pages/coin-page'
 import { CoinsPage } from '@/pages/coins-page'
 import { HomePage } from '@/pages/home-page'
+import { MethodPage } from '@/pages/method-page'
+import { StatsPage } from '@/pages/stats-page'
 
 function ScrollTop() {
   const { pathname } = useLocation()
@@ -17,7 +20,7 @@ function ScrollTop() {
   return null
 }
 
-// Pages not designed yet (method, stats, claim, token, api).
+// Pages not built yet (token, api).
 function Later() {
   return (
     <main className="mx-auto max-w-2xl px-4 pb-24 pt-16 md:px-6">
@@ -37,6 +40,9 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/" element={<HomePage />} />
         <Route path="/coins" element={<CoinsPage />} />
         <Route path="/coin/:chain/:ca" element={<CoinPage />} />
+        <Route path="/claim" element={<ClaimPage />} />
+        <Route path="/stats" element={<StatsPage />} />
+        <Route path="/method" element={<MethodPage />} />
         <Route path="*" element={<Later />} />
       </Routes>
       <SiteFooter />
