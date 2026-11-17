@@ -11,6 +11,12 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Added
 
+- Stats: "Token checks" first. Counts each time a visitor pastes a CA and presses Check (home page, coins page search)
+  or presses Scan now on a coin, repeats included. Opening a coin page from a list or a link is not a check. Bots and
+  localhost testing are left out, and one visitor counts at most 300 a day (D1 write budget). Starts at zero on the
+  day it goes live (migration 0007, `token_checks`).
+- Coins page: search by ticker, name or contract address. A full address gets a Check button that opens its page,
+  also for coins under $5k that the list leaves out.
 - Tests on every pull request (`.github/workflows/test.yml`): the collector's tests, edge cases from real sites
   included, and the site build. A red check means do not merge yet.
 - Weekly second check (`.github/workflows/audit.yml`, `collector/audit.ts`): a plainer, deeper reader looks at every
@@ -28,6 +34,12 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Changed
 
+- Header and footer: official X and GitHub logos (Simple Icons) link to @legitscan and the source code; the footer's
+  text link "X" is gone. The header's "Check a CA" opens the coins page with the cursor in the search box.
+- Home page hero: "This project grows with you." under the CA box, saying the project is early and learns from every
+  check and every proof a team sends in.
+- Home page: the X account chapter says how a tweet reaches us today (the claim page) and that reading it through the
+  X API comes later.
 - One readable verdict per coin on the coins list and the boards: Legit+, Legit with what proved it, CA on site, Not
   proven, Not checked or No website. The old row of small marks pushed the word "legit" over the MC column.
 - CoinGecko pages are read 20 a run instead of 5.

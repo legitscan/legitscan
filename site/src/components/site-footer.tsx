@@ -1,10 +1,11 @@
 import { Link } from 'react-router'
 import { LegitScanMark } from '@/components/legitscan-mark'
+import { SocialLinks } from '@/components/social-links'
 
 const COLS = [
   ['Product', [['/coins?proof=legit', 'Legit coins'], ['/coins?proof=website', 'CA on the website'], ['/stats', 'Stats']]],
   ['Builders', [['/claim', 'Claim your coin'], ['/method', 'How checks work'], ['/api', 'API (later)']]],
-  ['Project', [['/method#not-safe', 'Legit is not safe'], ['/token', 'Token'], ['https://x.com/legitscan', 'X']]],
+  ['Project', [['/method#not-safe', 'Legit is not safe'], ['/token', 'Token']]],
 ] as const
 
 export function SiteFooter() {
@@ -19,6 +20,7 @@ export function SiteFooter() {
           <p className="mt-3 max-w-xs text-sm text-muted">
             Proof that a contract address belongs to the project. Not a safety rating and not advice to buy.
           </p>
+          <SocialLinks className="-ml-3 mt-4" />
         </div>
         {COLS.map(([title, links]) => (
           <div key={title}>

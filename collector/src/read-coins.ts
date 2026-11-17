@@ -162,7 +162,7 @@ async function readChecks(db: D1Like, cas: string[]) {
 }
 
 // Numbers for /stats and the landing page, straight from the tables, plus the latest real pass of each check.
-export async function readStats(db: D1Like, floor = 5_000) {
+export async function readStats(db: D1Like, floor = 5_000, now = Date.now()) {
   const n = await db
     .prepare(
       `SELECT (SELECT count(*) FROM coins) AS coins,
@@ -179,10 +179,14 @@ export async function readStats(db: D1Like, floor = 5_000) {
               (SELECT count(*) FROM checks w JOIN coins c ON c.ca = w.ca WHERE w.kind = 'website' AND w.status = 'pass'
                  AND (EXISTS (SELECT 1 FROM checks k WHERE k.ca = w.ca AND k.kind IN ('x', 'githubca', 'dev') AND k.status = 'pass')
                    OR ((c.launch_x IS NOT NULL OR c.cg_x IS NOT NULL) AND EXISTS (SELECT 1 FROM checks k WHERE k.ca = w.ca AND k.kind = 'xmatch' AND k.status = 'pass')))) AS legit,
-              (SELECT count(*) FROM claims) AS claims`,
+              (SELECT count(*) FROM claims) AS claims,
+              (SELECT coalesce(sum(n), 0) FROM token_checks) AS token_checks,
+              (SELECT coalesce(sum(n), 0) FROM token_checks WHERE day = ?) AS token_checks_today,
+              (SELECT min(day) FROM token_checks) AS token_checks_since`,
     )
-    .bind(floor)
-    .first<Record<string, number>>();
+    .bind(floor, new Date(now).toISOString().slice(0, 10))
+    .first<Record<string, number | string | null>>();
+  const num = (k: string) => Number(n?.[k] ?? 0);
   const latest = async (kind: string) => {
     const r = await db
       .prepare(
@@ -195,18 +199,22 @@ export async function readStats(db: D1Like, floor = 5_000) {
     return r ? { ca: r.ca, symbol: cleanName(r.symbol), name: cleanName(r.name), reason: r.reason, sourceUrl: r.source_url, checkedMs: r.checked_ms, passedMs: r.passed_ms } : null;
   };
   return {
-    coins: n?.coins ?? 0,
-    overFloor: n?.over_floor ?? 0,
-    checked: n?.checked ?? 0,
-    websitePass: n?.website_pass ?? 0,
-    websiteFail: n?.website_fail ?? 0,
-    xPass: n?.x_pass ?? 0,
-    githubPass: n?.github_pass ?? 0,
-    devPass: n?.dev_pass ?? 0,
-    coingeckoPass: n?.coingecko_pass ?? 0,
-    legit: n?.legit ?? 0, // Legit and Legit+
-    legitPlus: n?.legit_plus ?? 0,
-    claims: n?.claims ?? 0,
+    coins: num("coins"),
+    overFloor: num("over_floor"),
+    checked: num("checked"),
+    websitePass: num("website_pass"),
+    websiteFail: num("website_fail"),
+    xPass: num("x_pass"),
+    githubPass: num("github_pass"),
+    devPass: num("dev_pass"),
+    coingeckoPass: num("coingecko_pass"),
+    legit: num("legit"), // Legit and Legit+
+    legitPlus: num("legit_plus"),
+    claims: num("claims"),
+    // Tokens checked by visitors (token-checks.ts), repeats included; counted since tokenChecksSince.
+    tokenChecks: num("token_checks"),
+    tokenChecksToday: num("token_checks_today"),
+    tokenChecksSince: typeof n?.token_checks_since === "string" ? n.token_checks_since : null,
     latest: { website: await latest("website"), x: await latest("x"), github: await latest("github"), dev: await latest("dev") },
   };
 }
@@ -229,7 +237,7 @@ export async function apiAnswer(db: D1Like, path: string, now = Date.now()): Pro
   if (api === "api" && kind === "sign-message" && arg && extra && more === undefined) return signMessageAnswer(db, arg, extra, now);
   if (api !== "api" || extra !== undefined) return { status: 404, body: { error: "not found" } };
   if (kind === "board" && BOARDS.has(arg as Board)) return { status: 200, body: { updatedMs, board: arg, coins: await readBoard(db, arg as Board, 50, now) } };
-  if (kind === "stats" && arg === undefined) return { status: 200, body: { updatedMs, stats: await readStats(db) } };
+  if (kind === "stats" && arg === undefined) return { status: 200, body: { updatedMs, stats: await readStats(db, 5_000, now) } };
   if (kind === "copies" && arg === undefined) return { status: 200, body: { updatedMs, copies: await readCopies(db, now) } };
   // All of them (562 on 17 Nov; at 100 the list stopped at $230k MC and hid ZOLVA). The page splits them into pages.
   // 600 coins: ~30k D1 rows read, ~140 KB gzipped.
