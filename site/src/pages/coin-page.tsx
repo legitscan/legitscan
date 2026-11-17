@@ -15,6 +15,10 @@ export function CoinPage() {
   const [fresh, setFresh] = useState(0)
   const { loading, failed, notFound, data } = useApi(valid ? `/api/coin/${ca.toLowerCase()}${fresh ? `?fresh=${fresh}` : ''}` : '/api/coin/invalid')
   const scan = useScan(ca.toLowerCase(), () => setFresh(Date.now()))
+  // Counts this visit for /stats ("coins checked by visitors"); the server counts each visitor and coin once a day.
+  useEffect(() => {
+    if (valid) fetch(`/api/view/${ca.toLowerCase()}`, { method: 'POST', keepalive: true }).catch(() => {})
+  }, [ca, valid])
   const shown = data?.coin?.ca === ca.toLowerCase() ? data.coin : null
   // A coin nobody has checked yet gets checked as soon as someone opens it, once per visit.
   const autoScanned = useRef('')
