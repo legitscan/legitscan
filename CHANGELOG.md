@@ -11,6 +11,9 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Added
 
+- Favicon (the LegitScan mark, light and dark tabs), app icons, and a share image: a link to the site in WhatsApp,
+  Telegram, X or Discord now shows the glass mark with "LegitScan, tech coins with a proven address". Images rendered
+  with Remotion (`og.jpg` 1200x630).
 - Stats: "Token checks" first. Counts each time a visitor pastes a CA and presses Check (home page, coins page search)
   or presses Scan now on a coin, repeats included. Opening a coin page from a list or a link is not a check. Bots and
   localhost testing are left out, and one visitor counts at most 300 a day (D1 write budget). Starts at zero on the
