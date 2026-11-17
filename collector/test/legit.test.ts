@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { checkAndSave, dueForChecks, PASSED_RECHECK_MS, RECHECK_MS, saveChecks } from "../src/check-store.ts";
 import { claimAnswer, CLAIMS_PER_HOUR } from "../src/claim.ts";
-import { checkCoin, checkXMatch, ownerMatches, pageLinks, parseOembed, projectHandle, publicUrl, freeHost, REQUEST_PAGES, readDomainCreated, readSites, registrableDomain } from "../src/legit-checks.ts";
+import { checkCoin, checkXMatch, ownerMatches, siteNamed, pageLinks, parseOembed, projectHandle, publicUrl, freeHost, REQUEST_PAGES, readDomainCreated, readSites, registrableDomain } from "../src/legit-checks.ts";
 import type { Fetcher } from "../src/http-json.ts";
 import { apiAnswer, legitLevel } from "../src/read-coins.ts";
 import { openSqlite } from "../src/sqlite-adapter.ts";
@@ -294,4 +294,59 @@ test("a scan reads as deep as the hourly run on a one-site coin, within a total 
   assert.equal((await readSites(fetch, ["https://deep.example/"], CA, 8)).status, "fail"); // the old 8 a site
   const capped = await readSites(fetch, ["https://deep.example/", "https://two.example/", "https://three.example/"], CA, 14, Date.now, 5);
   assert.equal(capped.pagesRead, 5); // never more than the total cap across sites
+});
+
+// 17 Nov: 16 coins failed with "a page listing many coins", and their sites were their own: ostraagent.xyz shows
+// "$OSTRA contract 0x68ff..." among 21 contracts, quantapools.tech "CA 0x1da8..." among 63, ponsfamily.com links its
+// own token in the footer. A copy launched on a launchpad named like the coin must still not pass.
+test("listing pages: the coin's own site counts, a launchpad or a copy next to it does not", async () => {
+  const many = Array.from({ length: 20 }, (_, i) => "0x" + String(i + 1).padStart(40, "0")).join(" ");
+  const ostra = web({ "https://ostraagent.xyz/": { body: `${many} <span class="mono">$OSTRA contract</span><code>${CA}</code>` } }).fetch;
+  const own = await readSites(ostra, ["https://ostraagent.xyz/"], CA, 20, Date.now, Infinity, { names: ["OSTRA", "Ostra Agent"], namesOf: async () => [] });
+  assert.deepEqual([own.status, own.foundAt], ["pass", "https://ostraagent.xyz/"]);
+  assert.equal((await readSites(ostra, ["https://ostraagent.xyz/"], CA)).status, "fail"); // without names: as before
+
+  const pad = web({ "https://launchpad.fun/": { body: `${many} ${CA}` } }).fetch;
+  assert.equal((await readSites(pad, ["https://launchpad.fun/"], CA, 20, Date.now, Infinity, { names: ["OSTRA", "Ostra Agent"], namesOf: async () => [] })).status, "fail");
+
+  const pons = web({ "https://ponsfamily.com/": { body: `${many} <a href="/launchpad/${CA}">PONS</a> <a href="/launchpad/${OTHER}">PONS</a>` } }).fetch;
+  const names = ["PONS", "Pons"];
+  assert.equal((await readSites(pons, ["https://ponsfamily.com/"], CA, 20, Date.now, Infinity, { names, namesOf: async () => [["Pons", "Pons"]] })).status, "fail");
+  assert.equal((await readSites(pons, ["https://ponsfamily.com/"], CA, 20, Date.now, Infinity, { names, namesOf: async () => [["MEOW", "Cat"]] })).status, "pass");
+});
+
+test("a site named after its coin", () => {
+  assert.ok(siteNamed("https://ufg.finance", ["UFG", "United Founders"]));
+  assert.ok(siteNamed("https://thegoldengoose.live", ["GG", "Golden Goose"]));
+  assert.ok(siteNamed("https://looping.gg/", ["GG", "Looping"]));
+  assert.ok(siteNamed("https://app.netnet.capital/", ["NET", "NetNet"]));
+  assert.ok(siteNamed("https://www.ponsbot.family/", ["PONSBOT", "Pons Bot"]));
+  assert.ok(!siteNamed("https://eggs.fun/", ["GG", "GG"])); // short tickers must equal the domain name
+  assert.ok(!siteNamed("https://launchpad.fun/", ["OSTRA", "Ostra Agent"]));
+  assert.ok(!siteNamed("https://app.fun/", ["HAPPYAPP"])); // a 3-letter domain name is not found inside a longer name
+});
+
+test("own listing page through the database: a copy named like the site on the same page blocks it", async () => {
+  const many = Array.from({ length: 20 }, (_, i) => "0x" + String(i + 1).padStart(40, "0")).join(" ");
+  const { fetch } = web({ "https://ponsfamily.com/": { body: `${many} /launchpad/${CA} /launchpad/${OTHER}` } });
+  const db = openSqlite(":memory:");
+  const add = (ca: string, sym: string) =>
+    db.prepare("INSERT INTO coins (ca, found_via, found_ms, symbol, name, websites, mc_usd) VALUES (?, 'pons', 1, ?, 'Pons', '[\"https://ponsfamily.com/\"]', 1e6)").bind(ca, sym).run();
+  await add(CA, "PONS");
+  await add("0x" + "e".repeat(40), "pons"); // a copy elsewhere: not on this page, does not matter
+  await checkAndSave(db, CA, { fetch, now: NOW, skipGithub: true });
+  const site = async () => (((await apiAnswer(db, `/api/coin/${CA}`, NOW)).body as any).coin.checks.website.status);
+  assert.equal(await site(), "pass");
+  await add(OTHER, "PoNs"); // a copy launched on the same launchpad, so on the same page; any spelling
+  await checkAndSave(db, CA, { fetch, now: NOW + 1000, skipGithub: true });
+  assert.equal(await site(), "fail");
+  db.close();
+});
+
+test("the hourly run reads 20 files a site (own.money keeps its CA in file 15 to 20)", async () => {
+  const pages: Record<string, { body: string; type?: string }> = { "https://deep.example/": { body: `<script src="/c1.js"></script>` } };
+  for (let i = 1; i <= 17; i++) pages[`https://deep.example/c${i}.js`] = { body: i === 17 ? `const ca="${CA}"` : `import("./c${i + 1}.js")`, type: "text/javascript" };
+  const { fetch } = web(pages);
+  assert.equal((await readSites(fetch, ["https://deep.example/"], CA)).status, "pass");
+  assert.equal((await readSites(fetch, ["https://deep.example/"], CA, 14)).status, "fail"); // the old 14
 });

@@ -11,6 +11,12 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Added
 
+- Tests on every pull request (`.github/workflows/test.yml`): the collector's tests, edge cases from real sites
+  included, and the site build. A red check means do not merge yet.
+- Weekly second check (`.github/workflows/audit.yml`, `collector/audit.ts`): a plainer, deeper reader looks at every
+  coin's website on Monday and compares with the collector. Disagreements go into one GitHub issue. Writes nothing to D1.
+- Coin page: the "Your project?" note says the one step that is missing (put the CA on the site, or post it from the
+  project's X account), instead of the same link for every coin.
 - Coins page: proof tabs with counts (All coins, Legit, Legit+, CA on site), market cap and sort as plain choices
   instead of dropdowns, and 25 coins a page. Titled "Every coin and its proof".
 - Name tricks: a token name with hidden characters that change how it is displayed (two tokens show as USDT this
@@ -30,6 +36,12 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Fixed
 
+- Missed coins, 17 Nov: a site that lists many contracts now counts when it is named after the coin and no other coin
+  on that page could claim the name (a copy on a launchpad named like the coin still fails). OSTRA, QUANTA, SCROOGE,
+  PONS and 12 more were read as "a page listing many coins".
+- The hourly run reads 20 files a site instead of 14: own.money, ignition.family, listed.exchange and scopl.live keep
+  their CA in file 15 to 20.
+- CoinGecko pages of coins whose website already shows the CA are read first (56 of 117 were waiting).
 - A Legit level could rest on an X account match made before the launch form or CoinGecko page was read (ZEAL: form
   @zealthemascot, site @ZEALZdotfun). New team links now void the old match and queue the coin; 58 stale matches were
   voided on 17 Nov.
