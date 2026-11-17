@@ -34,6 +34,8 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Changed
 
+- Home page hero: "This project grows with you." under the CA box, saying the project is early and learns from every
+  check and every proof a team sends in.
 - Home page: the X account chapter says how a tweet reaches us today (the claim page) and that reading it through the
   X API comes later.
 - One readable verdict per coin on the coins list and the boards: Legit+, Legit with what proved it, CA on site, Not
