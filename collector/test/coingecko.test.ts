@@ -42,7 +42,11 @@ test("CoinGecko refresh: once an hour, key sent as a header, unchanged answers n
   assert.deepEqual(await refreshCoingecko(db, fetch, "demo-key", 5_000, now), { listed: 3, compared: 2 }); // VRAX is under the floor
   assert.equal(await refreshCoingecko(db, fetch, "demo-key", 5_000, now + 60_000), null); // not due yet
   assert.deepEqual(keys, ["demo-key"]);
-  await refreshCoingecko(db, fetch, "demo-key", 5_000, now + COINGECKO_EVERY_MS);
+  // Same answers an hour later: one read of the stored rows, no per-coin reads or writes.
+  const asked: string[] = [];
+  const counting = { prepare: (sql: string) => (asked.push(sql), db.prepare(sql)) } as typeof db;
+  await refreshCoingecko(counting, fetch, "demo-key", 5_000, now + COINGECKO_EVERY_MS);
+  assert.equal(asked.filter((s) => /FROM checks WHERE ca = \?|INSERT INTO checks/.test(s)).length, 0, asked.join("\n"));
   const row = await db.prepare("SELECT checked_ms FROM checks WHERE ca = ? AND kind = 'coingecko'").bind(VIRTUAL).first<{ checked_ms: number }>();
   assert.equal(row?.checked_ms, now); // same answer an hour later: not written again
   const coin = ((await apiAnswer(db, `/api/coin/${VIRTUAL}`)).body as any).coin;
