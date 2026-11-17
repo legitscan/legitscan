@@ -70,23 +70,11 @@ body {
     border: 1px solid var(--color-line);
     border-radius: 14px;
   }
-  /* Proof box: hairline card by default, frosted over a full-bleed still, flat inside a chapter card. */
+  /* Proof box: the live data card next to each landing chapter. */
   .pbox {
     background: var(--color-surface);
     border: 1px solid var(--color-line);
     border-radius: 14px;
-  }
-  .chapter-bg .pbox {
-    border-color: var(--color-line-2);
-    background: rgb(255 255 255 / 0.78);
-    backdrop-filter: blur(14px) saturate(140%);
-    -webkit-backdrop-filter: blur(14px) saturate(140%);
-  }
-  .chapter-box .pbox {
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    padding: 18px 20px;
   }
   .num {
     font-family: var(--font-mono);
@@ -122,6 +110,19 @@ body {
 .film-fade {
   -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 16%, #000 84%, transparent 100%);
   mask-image: linear-gradient(180deg, transparent 0%, #000 16%, #000 84%, transparent 100%);
+}
+
+/* Phones keep the stills as a backdrop behind the text, like desktop (owner 16 Nov: a picture stacked above the text
+   looked wrong). Covering the whole tall section blew the glass mark up past the screen, so on a phone the still fills
+   the top part only and fades into the page; the mark stays whole (hero: it sits at 62-95% of the still's width). */
+@media (max-width: 767px) {
+  .phone-backdrop {
+    -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+  }
+  .phone-backdrop .film-img { animation: none; }
+  .hero-film .film-img { object-position: 96% 40% !important; }
+  /* Both full-bleed chapters (X account, Risk) have their mark on the left, at 11-38% of the still's width. */
 }
 
 /* Film grain so stills and later video clips read as one film. */
