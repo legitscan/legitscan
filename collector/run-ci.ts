@@ -1,6 +1,7 @@
 // The scheduled run on GitHub Actions (every 5 minutes), writing to Cloudflare D1 over its REST API.
 // GitHub, not Cloudflare, because DexScreener and GeckoTerminal answer 429 to Cloudflare's shared addresses (PLAN 3.1).
-// Env (GitHub secrets): CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID, CLOUDFLARE_API_TOKEN. Optional: RPC_URLS, LOGS_RPC_URLS (comma lists), BACKFILL=1.
+// Env (GitHub secrets): CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID, CLOUDFLARE_API_TOKEN. Optional: RPC_URLS, LOGS_RPC_URLS (comma lists), BACKFILL=1,
+// GITHUB_TOKEN (the workflow's own), X_BEARER_TOKEN (paid X API).
 import { runCollect } from "./src/collect-run.ts";
 import { createRpcPool, rpcNodes } from "./src/rpc-pool.ts";
 import { createD1Rest } from "./src/d1-rest.ts";
@@ -28,6 +29,11 @@ const stats = await runCollect({
   launchCalls: backfill ? 200 : 3,
   dexBatches: backfill ? 600 : 20,
   deepCoins: backfill ? 60 : 15, // ~140 coins at/above the floor, each re-checked hourly = ~12 per run
+  checkFetch: net,
+  checkCoins: backfill ? 60 : 25, // every coin with a website once an hour
+  githubToken: process.env.GITHUB_TOKEN,
+  xBearer: process.env.X_BEARER_TOKEN, // paid X API, empty until the owner buys credit and sets the secret
+  coingeckoKey: process.env.COINGECKO_API_KEY, // free Demo key, set by the owner
   log: (m) => console.log(`[${((Date.now() - t0) / 1000).toFixed(0)}s] ${m}`),
 });
 await db.prepare("UPDATE runs SET finished_ms = ?, stats = ? WHERE id = ?").bind(Date.now(), JSON.stringify(stats).slice(0, 4000), run?.id ?? 0).run();

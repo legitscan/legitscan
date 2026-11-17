@@ -2,7 +2,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { curveFromPool, devFlows, parseLaunch, LAUNCHER, LAUNCH_TOPIC, PONS_VIRTUAL_ETH, TRANSFER_TOPIC } from "../src/chain-reads.ts";
-import { pct, readBoard, readCoins, runCollect } from "../src/collect-run.ts";
+import { runCollect } from "../src/collect-run.ts";
+import { apiAnswer, CURVE_WINDOW_MS, pct, readBoard, readCoins } from "../src/read-coins.ts";
 import type { RpcCall, RpcClient, RpcResult } from "../src/contract-facts.ts";
 import { parseDexTokens, parseEthUsd, parseGtInfo, parseGtMulti, parseGtPoolTokens, WETH, xHandle, type Sources } from "../src/market-sources.ts";
 import { openSqlite } from "../src/sqlite-adapter.ts";
@@ -50,7 +51,9 @@ test("x handle only from real profile links", () => {
 
 test("Pons launch event parsed, anything else ignored", () => {
   const log = { address: LAUNCHER, topics: [LAUNCH_TOPIC, W(OFF), W(POOL), W(DEV)], blockNumber: "0x4d2" };
-  assert.deepEqual(parseLaunch({ ...log, blockNumber: "0x4d2" }), { token: OFF, pool: POOL, creator: DEV, block: 1234 });
+  const TX = "0x" + "ab".repeat(32);
+  assert.deepEqual(parseLaunch({ ...log, transactionHash: TX }), { token: OFF, pool: POOL, creator: DEV, block: 1234, tx: TX }); // tx: where the launch form is
+  assert.equal(parseLaunch(log)?.tx, null); // no hash in the log: the event still counts
   assert.equal(parseLaunch({ ...log, address: OFF }), null);
   assert.equal(parseLaunch({ ...log, topics: log.topics.slice(0, 3) }), null);
 });
@@ -249,5 +252,24 @@ test("a curve coin shows on Almost bonded with its curve MC, then on Migrated wi
   assert.equal((await readBoard(db, "almost", 50, t0)).length, 0);
   const [migrated] = await readBoard(db, "migrated", 50, t0);
   assert.deepEqual([migrated?.ca, migrated?.bonded, migrated?.bondedMs, migrated?.mcUsd], [OFF, true, t0 + 10 * 60_000, 30_000]);
+  db.close();
+});
+
+test("API: boards, coin list, one coin, last run time, 404s", async () => {
+  const db = openSqlite(":memory:");
+  await db.prepare("INSERT INTO coins (ca, found_via, found_ms, symbol, mc_usd, launch_block, launched_ms, bond_pct, bonded) VALUES (?, 'pons', 1, 'OFF', 28000, 5, 9000, 60, 0)").bind(OFF).run();
+  await db.prepare("INSERT INTO runs (started_ms, finished_ms) VALUES (1, 777)").run();
+  const coins = await apiAnswer(db, "/api/coins", 10_000);
+  assert.deepEqual([coins.status, (coins.body as any).updatedMs, (coins.body as any).coins[0].symbol], [200, 777, "OFF"]);
+  const almost = await apiAnswer(db, "/api/board/almost/", 10_000);
+  assert.deepEqual([almost.status, (almost.body as any).coins[0].bondPct], [200, 60]);
+  const one = await apiAnswer(db, `/api/coin/${OFF.toUpperCase().replace("0X", "0x")}`, 10_000);
+  assert.deepEqual([one.status, (one.body as any).coin.ca], [200, OFF]);
+  for (const [i, sym] of ["root", "ROOT", "Root", "solo"].entries())
+    await db.prepare("INSERT INTO coins (ca, found_via, found_ms, symbol, launch_block, launched_ms) VALUES (?, 'pons', 1, ?, ?, ?)").bind(`0x${String(i).padStart(40, "a")}`, sym, 10 + i, i === 2 ? 1 : 9500).run();
+  // "now" 3 days + 5s in: the Root launched at ms 1 is outside the window, case-different ROOTs count as one ticker.
+  const copies = await apiAnswer(db, "/api/copies", CURVE_WINDOW_MS + 5_000);
+  assert.deepEqual((copies.body as any).copies.map((r: object) => ({ ...r })), [{ ticker: "ROOT", contracts: 2 }]);
+  for (const bad of ["/api/coin/0x12", `/api/coin/${DEV}`, "/api/board/hot", "/api/coins/x", "/other"]) assert.equal((await apiAnswer(db, bad)).status, 404, bad);
   db.close();
 });
