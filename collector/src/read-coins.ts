@@ -231,7 +231,9 @@ export async function apiAnswer(db: D1Like, path: string, now = Date.now()): Pro
   if (kind === "board" && BOARDS.has(arg as Board)) return { status: 200, body: { updatedMs, board: arg, coins: await readBoard(db, arg as Board, 50, now) } };
   if (kind === "stats" && arg === undefined) return { status: 200, body: { updatedMs, stats: await readStats(db) } };
   if (kind === "copies" && arg === undefined) return { status: 200, body: { updatedMs, copies: await readCopies(db, now) } };
-  if (kind === "coins" && arg === undefined) return { status: 200, body: { updatedMs, coins: await readCoins(db, 5_000, 100) } };
+  // All of them (562 on 17 Nov; at 100 the list stopped at $230k MC and hid ZOLVA). The page splits them into pages.
+  // 600 coins: ~30k D1 rows read, ~140 KB gzipped.
+  if (kind === "coins" && arg === undefined) return { status: 200, body: { updatedMs, coins: await readCoins(db, 5_000, 1000) } };
   if (kind === "coin" && arg && CA.test(arg.toLowerCase())) {
     const [coin] = await readCoins(db, 0, 1, [arg.toLowerCase()]);
     if (!coin) return { status: 404, body: { updatedMs, error: "not in our list yet" } };
