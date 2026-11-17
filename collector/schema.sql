@@ -12,7 +12,16 @@ CREATE TABLE IF NOT EXISTS coins (
   found_via       TEXT NOT NULL CHECK (found_via IN ('pons', 'geckoterminal')),
   found_ms        INTEGER NOT NULL,
   launch_block    INTEGER,                 -- Pons launch event block; NULL for other launchers
-  creator         TEXT,                    -- Pons launch event creator (topic3)
+  creator         TEXT,                    -- launch wallet: Pons launch event topic3, else the sender of the first mint
+  creator_at_ms   INTEGER,                 -- when the first mint was last looked for (non-Pons coins)
+  -- What the dev typed into the Pons launch form (self-declared, like a listing: it says where to look).
+  launch_tx       TEXT,
+  launch_desc     TEXT,
+  launch_website  TEXT,
+  launch_x        TEXT,
+  launch_telegram TEXT,
+  launch_github   TEXT,
+  launch_info_at_ms INTEGER,
 
   -- Market, from DexScreener /tokens/v1 (30 tokens per call). market_at_ms set even when DexScreener had no pair.
   symbol          TEXT,
@@ -52,7 +61,7 @@ CREATE TABLE IF NOT EXISTS coins (
 
   -- Dev wallet and what it did with the token, from Transfer logs. Read in steps: flows_to_block is the last block
   -- already counted, so a refresh only reads the new blocks.
-  dev             TEXT,                    -- creator for Pons, else gt_dev
+  dev             TEXT,                    -- creator, else gt_dev
   dev_in          TEXT,                    -- everything the dev received (mint, buys)
   dev_out_burn    TEXT,                    -- sent to 0x...dEaD or 0x0
   dev_out_contract TEXT,                   -- sent to a contract: pools, routers (mostly sells or adding liquidity)
@@ -69,6 +78,12 @@ CREATE TABLE IF NOT EXISTS coins (
   bonded          INTEGER,
   bonded_ms       INTEGER,
   bond_at_ms      INTEGER,
+
+  -- The listed website's registered domain and its registration time (RDAP), read by the legit checks.
+  -- domain_at_ms: when we last asked; NULL created = the registry does not say.
+  domain          TEXT,
+  domain_created_ms INTEGER,
+  domain_at_ms    INTEGER,
 
   last_error      TEXT
 );
@@ -94,3 +109,71 @@ CREATE TABLE IF NOT EXISTS runs (
   finished_ms INTEGER,
   stats       TEXT
 );
+
+-- Legit checks (legit-checks.ts, dev-sign.ts): one row per coin and check, the latest answer. status: pass / fail / none (nothing to
+-- check yet) / error (could not read). passed_ms: when the current passing streak began (NULL when not passing).
+CREATE TABLE IF NOT EXISTS checks (
+  ca          TEXT NOT NULL,
+  kind        TEXT NOT NULL CHECK (kind IN ('website', 'x', 'xmatch', 'github', 'githubca', 'dev', 'coingecko')),
+  status      TEXT NOT NULL CHECK (status IN ('pass', 'fail', 'none', 'error')),
+  reason      TEXT NOT NULL,
+  source_url  TEXT,                       -- the page, tweet or repo that proves it
+  at_ms       INTEGER,                    -- github: last push
+  checked_ms  INTEGER NOT NULL,
+  passed_ms   INTEGER,
+  PRIMARY KEY (ca, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_checks_pass ON checks (kind, passed_ms) WHERE status = 'pass';
+
+-- A coin's check history: one row each time a check's status changes (first answer included).
+CREATE TABLE IF NOT EXISTS check_events (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  ca      TEXT NOT NULL,
+  kind    TEXT NOT NULL,
+  status  TEXT NOT NULL,
+  reason  TEXT NOT NULL,
+  at_ms   INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_check_events_ca ON check_events (ca, at_ms);
+
+-- When the checks last ran for a coin, and when a claim asks for a fresh look sooner.
+CREATE TABLE IF NOT EXISTS check_queue (
+  ca          TEXT PRIMARY KEY,
+  checked_ms  INTEGER,
+  wanted_ms   INTEGER                     -- set by /claim; the collector checks these first
+);
+
+-- Tweets sent in on /claim. The tweet is read through oEmbed when it arrives; the checks decide, not the sender.
+-- ip_hash: SHA-256 of the sender's IP and a daily salt, only to limit claims per sender. No raw IP is kept.
+CREATE TABLE IF NOT EXISTS claims (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ca          TEXT NOT NULL,
+  tweet_url   TEXT NOT NULL,
+  author      TEXT NOT NULL,
+  ip_hash     TEXT NOT NULL,
+  created_ms  INTEGER NOT NULL,
+  UNIQUE (ca, tweet_url)
+);
+CREATE INDEX IF NOT EXISTS idx_claims_ip ON claims (ip_hash, created_ms);
+
+-- Dev sign (dev-sign.ts): the launch wallet's signature, kept so anyone can check it again with any wallet tool.
+CREATE TABLE IF NOT EXISTS dev_signatures (
+  ca         TEXT PRIMARY KEY,
+  wallet     TEXT NOT NULL,
+  message    TEXT NOT NULL,
+  signature  TEXT NOT NULL,
+  signed_ms  INTEGER NOT NULL
+);
+
+-- When a whole-list source was last read (coingecko: the hourly CoinGecko list).
+CREATE TABLE IF NOT EXISTS source_times (
+  name   TEXT PRIMARY KEY,
+  at_ms  INTEGER NOT NULL
+);
+
+-- Instant scans from the coin page (scan.ts): only to limit scans per sender. ip_hash = SHA-256 of IP + day, no raw IP.
+CREATE TABLE IF NOT EXISTS scans (
+  ip_hash  TEXT NOT NULL,
+  at_ms    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scans_ip ON scans (ip_hash, at_ms);

@@ -1,17 +1,22 @@
 // One collector run. Three stages, each with its own limit so a run always ends in time:
-//   1. find coins: Pons launch events since the cursor + GeckoTerminal pool lists (other launchers)
+//   1. find coins: Pons launch events since the cursor + GeckoTerminal pool lists (other launchers), and each Pons
+//      coin's launch form (website, X) from its launch transaction
 //   2. market: DexScreener, 30 coins per call. Coins at/above the MC floor every run, the rest every few hours.
 //   3. deep check, only at/above the MC floor: GeckoTerminal info (holders, top 10, dev), contract facts,
 //      dev wallet flows (incremental), burned supply.
+//   4. legit checks (website, X, GitHub) for coins with a listed website: claimed coins first, then the stalest.
+//   5. CoinGecko listing for coins at/above the floor, from one hourly read of CoinGecko's whole list.
 import { readContractFacts, type RpcClient } from "./contract-facts.ts";
-import { BURN_HOLDERS, MAX_SPAN, balances, blockAt, chainClock, codeCheck, devFlows, readCurves, scanLaunches, timeAt, type Launch } from "./chain-reads.ts";
+import { BURN_HOLDERS, MAX_SPAN, balances, blockAt, chainClock, codeCheck, devFlows, findCreator, launchTx, readCurves, readLaunchInfos, scanLaunches, timeAt, type Launch } from "./chain-reads.ts";
+import { checkAndSave, dueForChecks } from "./check-store.ts";
+import { refreshCoingecko } from "./coingecko.ts";
 import type { D1Like } from "./d1-types.ts";
+import type { Fetcher } from "./http-json.ts";
+import { CURVE_WINDOW_MS } from "./read-coins.ts";
 import type { GtInfo, Market, Sources } from "./market-sources.ts";
 
 // First Pons launch seen on 2026-11-16 was at block 27,027,321. Reading from here skips 27M empty blocks.
 export const PONS_FIRST_BLOCK = 27_000_000;
-// Curve coins launched within this window are re-read every run and shown on Almost bonded.
-export const CURVE_WINDOW_MS = 3 * 24 * 3600_000;
 
 export type RunOptions = {
   db: D1Like;
@@ -26,18 +31,29 @@ export type RunOptions = {
   dexBatches?: number; // DexScreener calls (30 coins each)
   deepCoins?: number; // coins deep-checked per run (GeckoTerminal allows ~25 a minute)
   deepEveryMs?: number;
+  launchForms?: number; // Pons launch forms read per run (10 per RPC request)
+  launchTxLookups?: number; // launch transactions looked up per run for coins found before 17 Nov
+  checkFetch?: Fetcher; // plain fetch for project websites, oEmbed and GitHub; no legit checks without it
+  checkCoins?: number; // coins legit-checked per run
+  githubToken?: string; // Actions' own GITHUB_TOKEN: 1,000 GitHub API calls an hour instead of 60
+  xBearer?: string; // paid X API, only when the owner sets X_BEARER_TOKEN
+  coingeckoKey?: string; // CoinGecko Demo key (COINGECKO_API_KEY); no CoinGecko check without it
   log?: (msg: string) => void;
 };
 
 export type RunStats = {
   launchesFound: number;
   launchCursor: number;
+  launchForms: number;
   gtTokensSeen: number;
   curveChecked: number;
   marketChecked: number;
   marketFound: number;
   deepChecked: number;
   deepErrors: number;
+  legitChecked: number;
+  legitErrors: number;
+  coingeckoListed: number | null; // Robinhood Chain coins on CoinGecko's list, when it was read this run
   rpcLogCalls: number;
   errors: string[];
 };
@@ -63,7 +79,7 @@ async function insertRows(db: D1Like, head: string, tail: string, rows: unknown[
 export async function runCollect(o: RunOptions): Promise<RunStats> {
   const floor = o.mcFloorUsd ?? 5_000;
   const log = o.log ?? (() => {});
-  const s: RunStats = { launchesFound: 0, launchCursor: 0, gtTokensSeen: 0, curveChecked: 0, marketChecked: 0, marketFound: 0, deepChecked: 0, deepErrors: 0, rpcLogCalls: 0, errors: [] };
+  const s: RunStats = { launchesFound: 0, launchCursor: 0, launchForms: 0, gtTokensSeen: 0, curveChecked: 0, marketChecked: 0, marketFound: 0, deepChecked: 0, deepErrors: 0, legitChecked: 0, legitErrors: 0, coingeckoListed: null, rpcLogCalls: 0, errors: [] };
   const clock = await chainClock(o.rpc);
   const logsRpc = o.logsRpc ?? o.rpc;
 
@@ -76,16 +92,52 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
     s.rpcLogCalls += scan.calls;
     await insertRows(
       o.db,
-      "INSERT INTO coins (ca, found_via, found_ms, launch_block, launched_ms, pool, creator, dev)",
+      "INSERT INTO coins (ca, found_via, found_ms, launch_block, launched_ms, pool, creator, dev, launch_tx)",
       `ON CONFLICT (ca) DO UPDATE SET found_via = 'pons', launch_block = excluded.launch_block, launched_ms = excluded.launched_ms,
-         pool = excluded.pool, creator = excluded.creator, dev = excluded.creator`,
-      scan.launches.map((l: Launch) => [l.token, "pons", o.now(), l.block, timeAt(clock, l.block), l.pool, l.creator, l.creator]),
+         pool = excluded.pool, creator = excluded.creator, dev = excluded.creator, launch_tx = coalesce(excluded.launch_tx, launch_tx)`,
+      scan.launches.map((l: Launch) => [l.token, "pons", o.now(), l.block, timeAt(clock, l.block), l.pool, l.creator, l.creator, l.tx]),
     );
     await q(o.db, "INSERT INTO cursor (name, block) VALUES ('pons', ?) ON CONFLICT (name) DO UPDATE SET block = max(block, excluded.block)", scan.scannedTo);
     s.launchesFound += scan.launches.length;
     s.launchCursor = scan.scannedTo;
     from = scan.scannedTo + 1;
     log(`launches: +${scan.launches.length}, cursor ${scan.scannedTo} of ${clock.head}`);
+  }
+
+  // 1a2. The Pons launch form (website, X, Telegram, GitHub the dev typed in), read from the launch transaction: new
+  // launches first, 10 per RPC request. Coins found before launch_tx was kept get their launch tx from the launch event
+  // (one getLogs each), coins at/above the floor first.
+  try {
+    const missing = await all<{ ca: string; launch_block: number }>(
+      o.db,
+      `SELECT ca, launch_block FROM coins WHERE launch_tx IS NULL AND launch_block IS NOT NULL AND launch_info_at_ms IS NULL
+         AND (mc_usd >= ? OR launched_ms >= ?) ORDER BY mc_usd DESC LIMIT ?`,
+      floor, o.now() - CURVE_WINDOW_MS, o.launchTxLookups ?? 10,
+    );
+    for (const c of missing) {
+      const tx = await launchTx(logsRpc, c.ca, c.launch_block);
+      s.rpcLogCalls++;
+      if (tx) await q(o.db, "UPDATE coins SET launch_tx = ? WHERE ca = ?", tx, c.ca);
+      else await q(o.db, "UPDATE coins SET launch_info_at_ms = ? WHERE ca = ?", o.now(), c.ca); // no event found: stop asking
+    }
+    const todo = await all<{ ca: string; launch_tx: string }>(
+      o.db,
+      "SELECT ca, launch_tx FROM coins WHERE launch_tx IS NOT NULL AND launch_info_at_ms IS NULL ORDER BY launch_block DESC LIMIT ?",
+      o.launchForms ?? 100,
+    );
+    const forms = await readLaunchInfos(o.rpc, todo.map((c) => c.launch_tx));
+    for (const c of todo) {
+      const f = forms.get(c.launch_tx);
+      await q(
+        o.db,
+        `UPDATE coins SET launch_desc = ?, launch_website = ?, launch_x = ?, launch_telegram = ?, launch_github = ?, launch_info_at_ms = ? WHERE ca = ?`,
+        f?.description ?? null, f?.website ?? null, f?.x ?? null, f?.telegram ?? null, f?.github ?? null, o.now(), c.ca,
+      );
+    }
+    s.launchForms = todo.length;
+    log(`launch forms: ${todo.length} read, ${todo.filter((c) => forms.get(c.launch_tx)?.website).length} with a website`);
+  } catch (e) {
+    s.errors.push(`launch forms: ${(e as Error).message}`);
   }
 
   // 1b. Other launchers, from GeckoTerminal's newest and busiest pools.
@@ -249,7 +301,20 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
         o.sources.gtInfo(c.ca).catch((e: Error): GtInfo | null => (s.errors.push(`gt info ${c.ca}: ${e.message}`), null)),
         readContractFacts(o.rpc, c.ca, o.now()),
       ]);
-      const dev: string | null = c.creator ?? info?.dev ?? c.dev ?? null;
+      // Not a Pons coin: find who launched it from its first mint, once (again after a day when nothing was found).
+      let creator: string | null = c.creator ?? null;
+      let creatorAt: number | null = c.creator_at_ms ?? null;
+      if (!creator && (creatorAt === null || o.now() - creatorAt > 86_400_000)) {
+        const near = c.pair_created_ms ? blockAt(clock, c.pair_created_ms) : 0;
+        const found = await findCreator(logsRpc, o.rpc, c.ca, near > 0 ? Math.max(0, near - 2 * MAX_SPAN) : 0, clock.head).catch((e: Error) => {
+          s.errors.push(`creator ${c.ca}: ${e.message}`);
+          return null;
+        });
+        s.rpcLogCalls += found?.calls ?? 0;
+        creator = found?.creator ?? null;
+        creatorAt = o.now();
+      }
+      const dev: string | null = creator ?? info?.dev ?? c.dev ?? null;
       const [burnDead, burnZero, devNow] = await balances(o.rpc, c.ca, dev ? [...BURN_HOLDERS, dev] : BURN_HOLDERS);
 
       // Dev flows: continue from the last counted block, or start over if the dev wallet changed.
@@ -270,14 +335,14 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
            icon_url = coalesce(nullif(icon_url, ''), ?), websites = coalesce(websites, ?), x_handle = coalesce(x_handle, ?), telegram = coalesce(telegram, ?),
            is_proxy = ?, has_mint = ?, has_pause = ?, has_blacklist = ?, has_upgrade = ?, owner = ?, owner_renounced = ?,
            total_supply = ?, decimals = ?, burned = ?, facts_at_ms = ?,
-           dev = ?, dev_in = ?, dev_out_burn = ?, dev_out_contract = ?, dev_out_wallet = ?, dev_holds = ?, flows_to_block = ?, flows_at_ms = ?,
+           creator = ?, creator_at_ms = ?, dev = ?, dev_in = ?, dev_out_burn = ?, dev_out_contract = ?, dev_out_wallet = ?, dev_holds = ?, flows_to_block = ?, flows_at_ms = ?,
            info_at_ms = ?, last_error = NULL
          WHERE ca = ?`,
         info?.holders ?? c.holders, info?.top10Pct ?? c.top10_pct, info?.dev ?? c.gt_dev, b(info?.verified), b(info?.honeypot),
         info?.iconUrl ?? null, info?.websites.length ? JSON.stringify(info.websites) : null, info?.xHandle ?? null, info?.telegram ?? null,
         b(facts.isProxy), b(facts.hasMint), b(facts.hasPause), b(facts.hasBlacklist), b(facts.hasUpgrade), facts.owner, b(facts.ownerRenounced),
         facts.totalSupply, facts.decimals, burned, o.now(),
-        dev, dev ? flows.in.toString() : null, dev ? flows.burn.toString() : null, dev ? flows.toContract.toString() : null,
+        creator, creatorAt, dev, dev ? flows.in.toString() : null, dev ? flows.burn.toString() : null, dev ? flows.toContract.toString() : null,
         dev ? flows.toWallet.toString() : null, dev && devNow !== null && devNow !== undefined ? devNow.toString() : null, dev ? flows.to : null, o.now(),
         o.now(), c.ca,
       );
@@ -289,81 +354,39 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
     }
   }
   log(`deep: ${s.deepChecked} checked, ${s.deepErrors} failed`);
+
+  // 4. Legit checks. Coins someone claimed first, then never-checked, then the stalest past RECHECK_MS.
+  if (o.checkFetch) {
+    const due = await dueForChecks(o.db, floor, o.now(), o.checkCoins ?? 25);
+    const env = { fetch: o.checkFetch, now: o.now(), githubToken: o.githubToken, xBearer: o.xBearer };
+    // Four at a time: each coin is a handful of requests to different hosts.
+    for (let i = 0; i < due.length; i += 4) {
+      await Promise.all(
+        due.slice(i, i + 4).map(async ({ ca }) => {
+          try {
+            await checkAndSave(o.db, ca, env);
+            s.legitChecked++;
+          } catch (e) {
+            s.legitErrors++;
+            s.errors.push(`legit ${ca}: ${(e as Error).message}`);
+          }
+        }),
+      );
+    }
+    log(`legit: ${s.legitChecked} checked, ${s.legitErrors} failed`);
+  }
+
+  // 5. CoinGecko listing, once an hour, for every coin at/above the floor. Unchanged answers are not written.
+  if (o.coingeckoKey && o.checkFetch) {
+    try {
+      const r = await refreshCoingecko(o.db, o.checkFetch, o.coingeckoKey, floor, o.now());
+      if (r) {
+        s.coingeckoListed = r.listed;
+        log(`coingecko: ${r.listed} Robinhood Chain coins listed, ${r.compared} of ours compared`);
+      }
+    } catch (e) {
+      s.errors.push(`coingecko: ${(e as Error).message}`);
+    }
+  }
   return s;
-}
-
-// Percent of total supply, from base-unit strings. null when either side is unknown.
-export function pct(part: string | null, supply: string | null): number | null {
-  if (part === null || supply === null || !/^\d+$/.test(part) || !/^[1-9]\d*$/.test(supply)) return null;
-  return Number((BigInt(part) * 10_000n) / BigInt(supply)) / 100;
-}
-
-export type Board = "new" | "almost" | "migrated";
-export const ALMOST_BONDED_PCT = 50;
-
-// The three Pons boards, GMGN style. "new": newest launches; "almost": still on the curve, fullest first;
-// "migrated": left the curve, most recent first. Each row is the same shape as readCoins.
-// Almost bonded only lists coins inside CURVE_WINDOW_MS: older ones are not re-read, so their percent could be stale.
-export async function readBoard(db: D1Like, board: Board, limit = 50, now = Date.now()) {
-  const cas =
-    board === "new"
-      ? await all<{ ca: string }>(db, "SELECT ca FROM coins WHERE launch_block IS NOT NULL ORDER BY launch_block DESC LIMIT ?", limit)
-      : board === "almost"
-        ? await all<{ ca: string }>(
-            db,
-            "SELECT ca FROM coins WHERE bonded = 0 AND bond_pct >= ? AND launched_ms >= ? ORDER BY bond_pct DESC LIMIT ?",
-            ALMOST_BONDED_PCT, now - CURVE_WINDOW_MS, limit,
-          )
-        : await all<{ ca: string }>(db, "SELECT ca FROM coins WHERE bonded = 1 ORDER BY bonded_ms DESC LIMIT ?", limit);
-  return readCoins(db, 0, limit, cas.map((r) => r.ca));
-}
-
-export const MC_OVER_LIQ_WARN = 100; // real coins seen 2026-11-16 sit at 2x-25x (OffRouter 2x, GF 16x, CHARLIE 21x)
-
-// What the site and the API read: one coin's facts, with percentages worked out. Dev launch count comes from our own
-// table (every Pons launch is in it; other launchers count once we have seen them).
-export async function readCoins(db: D1Like, floor = 5_000, limit = 50, only?: string[]) {
-  const select = `SELECT c.*, (SELECT count(*) FROM coins d WHERE d.dev = c.dev) AS dev_launches,
-            (SELECT count(*) FROM coins t WHERE t.symbol = c.symbol AND t.ca <> c.ca) AS same_ticker FROM coins c`;
-  const rows = only
-    ? only.length
-      ? await all<Record<string, any>>(db, `${select} WHERE c.ca IN (${marks(only)})`, ...only)
-      : []
-    : await all<Record<string, any>>(db, `${select} WHERE c.mc_usd >= ? ORDER BY c.mc_usd DESC LIMIT ?`, floor, limit);
-  if (only) rows.sort((a, b) => only.indexOf(a.ca) - only.indexOf(b.ca)); // keep the board's order
-  return rows.map((c) => ({
-    ca: c.ca,
-    symbol: c.symbol,
-    name: c.name,
-    icon: c.icon_url || null,
-    websites: c.websites ? (JSON.parse(c.websites) as string[]) : [],
-    x: c.x_handle,
-    dex: c.dex,
-    mcUsd: c.mc_usd,
-    liqUsd: c.liq_usd,
-    // MC is price x supply; with a thin pool a tiny trade sets the price. 2026-11-16: a fake "BTC" showed $64T MC on
-    // $1,880 liquidity. Over 100x reads as "MC not backed by liquidity" on the risk panel.
-    mcOverLiq: c.mc_usd && c.liq_usd ? Math.round(c.mc_usd / c.liq_usd) : null,
-    mcNotBacked: c.mc_usd && c.liq_usd !== null ? c.liq_usd === 0 || c.mc_usd / c.liq_usd > MC_OVER_LIQ_WARN : null,
-    pairCreatedMs: c.pair_created_ms,
-    launchedMs: c.launched_ms,
-    bondPct: c.bond_pct,
-    bonded: c.bonded === null ? null : c.bonded === 1,
-    bondedMs: c.bonded_ms,
-    holders: c.holders,
-    top10Pct: c.top10_pct,
-    powers: c.facts_at_ms ? ["mint", "pause", "blacklist", "upgrade"].filter((p) => c[`has_${p}`] === 1) : null,
-    ownerRenounced: c.owner_renounced === null ? null : c.owner_renounced === 1,
-    burnedPct: pct(c.burned, c.total_supply),
-    dev: c.dev,
-    devLaunches: c.dev ? c.dev_launches : null,
-    devGotPct: pct(c.dev_in, c.total_supply),
-    devBurnedPct: pct(c.dev_out_burn, c.total_supply),
-    devToContractPct: pct(c.dev_out_contract, c.total_supply),
-    devToWalletPct: pct(c.dev_out_wallet, c.total_supply),
-    devHoldsPct: pct(c.dev_holds, c.total_supply),
-    sameTicker: c.symbol ? c.same_ticker : null,
-    checkedMs: c.info_at_ms,
-    error: c.last_error,
-  }));
 }

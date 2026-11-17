@@ -2,7 +2,7 @@ import { Link } from 'react-router'
 import { LegitScanMark } from '@/components/legitscan-mark'
 
 const COLS = [
-  ['Product', [['/coins', 'Verified coins'], ['/coins?status=pending', 'Waiting for proof'], ['/stats', 'Stats']]],
+  ['Product', [['/coins?proof=legit', 'Legit coins'], ['/coins?proof=website', 'CA on the website'], ['/stats', 'Stats']]],
   ['Builders', [['/claim', 'Claim your coin'], ['/method', 'How checks work'], ['/api', 'API (later)']]],
   ['Project', [['/method#not-safe', 'Legit is not safe'], ['/token', 'Token'], ['https://x.com/legitscan', 'X']]],
 ] as const
