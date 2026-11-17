@@ -2,6 +2,7 @@ import { Menu, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link, NavLink } from 'react-router'
 import { LegitScanMark } from '@/components/legitscan-mark'
+import { SocialLinks } from '@/components/social-links'
 
 const LINKS = [
   ['/coins', 'Coins'],
@@ -19,25 +20,28 @@ export function SiteNav() {
           <LegitScanMark />
           LegitScan
         </Link>
-        <nav className="hidden items-center gap-7 text-sm text-muted md:flex">
-          {LINKS.map(([to, name]) => (
-            <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'text-ink' : 'hover:text-ink')}>
-              {name}
-            </NavLink>
-          ))}
-          <Link to="/coins" className="btn btn-dark !min-h-10 !px-5 !text-sm">
+        <div className="flex items-center gap-2 md:gap-4">
+          <nav className="hidden items-center gap-7 text-sm text-muted md:flex">
+            {LINKS.map(([to, name]) => (
+              <NavLink key={to} to={to} className={({ isActive }) => (isActive ? 'text-ink' : 'hover:text-ink')}>
+                {name}
+              </NavLink>
+            ))}
+          </nav>
+          <SocialLinks />
+          <Link to="/coins?check=1" className="btn btn-dark hidden !min-h-10 !px-5 !text-sm md:inline-flex">
             Check a CA
           </Link>
-        </nav>
-        <button
-          type="button"
-          className="-mr-2 flex h-11 w-11 items-center justify-center md:hidden"
-          aria-label={open ? 'Close menu' : 'Open menu'}
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? <X size={20} /> : <Menu size={20} />}
-        </button>
+          <button
+            type="button"
+            className="-mr-2 flex h-11 w-11 items-center justify-center md:hidden"
+            aria-label={open ? 'Close menu' : 'Open menu'}
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? <X size={20} /> : <Menu size={20} />}
+          </button>
+        </div>
       </div>
       {open && (
         <nav className="border-t border-line px-4 pb-4 md:hidden">

@@ -34,6 +34,8 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Changed
 
+- Header and footer: official X and GitHub logos (Simple Icons) link to @legitscan and the source code; the footer's
+  text link "X" is gone. The header's "Check a CA" opens the coins page with the cursor in the search box.
 - Home page hero: "This project grows with you." under the CA box, saying the project is early and learns from every
   check and every proof a team sends in.
 - Home page: the X account chapter says how a tweet reaches us today (the claim page) and that reading it through the
