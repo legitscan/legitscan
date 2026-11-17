@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router'
 import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
 import { LiveCoinTable } from '@/components/live-coin-table'
 import { SectionHead } from '@/components/section-head'
@@ -38,6 +38,14 @@ export function CoinsPage() {
   const [page, setPage] = useState(0)
   const [q, setQ] = useState('')
   const nav = useNavigate()
+  // "Check a CA" in the nav opens /coins?check=1: the cursor waits in the search box, ready for a pasted address. Keyed
+  // on the location, so pressing it again while already here focuses the box again.
+  const searchBox = useRef<HTMLInputElement>(null)
+  const location = useLocation()
+  const wantsCheck = params.get('check') === '1'
+  useEffect(() => {
+    if (wantsCheck) searchBox.current?.focus()
+  }, [wantsCheck, location.key])
   // Off by default: a clone on a $2k pool can show a $64T MC (fake "BTC", 16 Nov) and would top every MC sort.
   const [showUnbacked, setShowUnbacked] = useState(false)
 
@@ -90,6 +98,7 @@ export function CoinsPage() {
           <Search size={16} className="shrink-0 text-muted" aria-hidden="true" />
           <span className="sr-only">Search by ticker, name or contract address</span>
           <input
+            ref={searchBox}
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
