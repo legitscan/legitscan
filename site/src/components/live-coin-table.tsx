@@ -1,18 +1,48 @@
 import { useState, type ReactNode } from 'react'
+import { ArrowDown, ArrowUp } from 'lucide-react'
 import { Link } from 'react-router'
 import { LegitStatus } from '@/components/legit-status'
 import { coinName, subName, type LiveCoin } from '@/data/live-coins'
 import { shortCa, since, usd } from '@/format-coin'
 
-const GRID = 'md:grid md:grid-cols-[minmax(0,2fr)_112px_80px_80px_72px_64px_72px_minmax(0,1.4fr)_56px] md:items-center md:gap-4'
-const HEAD: [string, string?][] = [['Coin'], ['Legit'], ['MC', 'text-right'], ['Liquidity', 'text-right'], ['Holders', 'text-right'], ['Top 10', 'text-right'], ['Dev coins', 'text-right'], ['Risk'], ['Age', 'text-right']]
+const GRID = 'md:grid md:grid-cols-[minmax(0,2fr)_112px_80px_80px_72px_64px_72px_64px_minmax(0,1.4fr)_56px] md:items-center md:gap-4'
 
-// Legit checks (website, X, GitHub) next to market and risk facts. Rows stack under 768px.
-export function LiveCoinTable({ coins }: { coins: LiveCoin[] }) {
+// Columns, in order. The key is what the coins page sorts by (COIN_SORTS there).
+export const COLUMNS = [
+  ['coin', 'Coin'],
+  ['legit', 'Legit'],
+  ['mc', 'MC'],
+  ['liq', 'Liquidity'],
+  ['holders', 'Holders'],
+  ['top10', 'Top 10'],
+  ['dev', 'Dev coins'],
+  ['copies', 'Copies'],
+  ['risk', 'Risk'],
+  ['age', 'Age'],
+] as const
+export type ColumnKey = (typeof COLUMNS)[number][0]
+export type SortDir = 'asc' | 'desc'
+const LEFT = new Set<ColumnKey>(['coin', 'legit', 'risk'])
+
+// Legit checks (website, X, GitHub) next to market and risk facts. Rows stack under 768px. With onSort, every header is
+// a button: first press sorts its usual way, the next press flips it.
+export function LiveCoinTable({ coins, sort, onSort }: { coins: LiveCoin[]; sort?: { key: ColumnKey; dir: SortDir }; onSort?: (key: ColumnKey) => void }) {
   return (
     <div className="card overflow-hidden">
       <div className={`hidden border-b border-line px-5 py-3 ${GRID}`}>
-        {HEAD.map(([t, cls]) => <span key={t} className={`label ${cls ?? ''}`}>{t}</span>)}
+        {COLUMNS.map(([key, title]) => {
+          const on = sort?.key === key
+          const align = LEFT.has(key) ? '' : 'md:justify-end'
+          if (!onSort) return <span key={key} className={`label ${LEFT.has(key) ? '' : 'text-right'}`}>{title}</span>
+          return (
+            <span key={key} role="columnheader" aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} className={`flex ${align}`}>
+              <button type="button" onClick={() => onSort(key)} className={`label inline-flex min-h-8 items-center gap-1 rounded hover:text-ink ${on ? 'text-ink' : ''}`}>
+                {title}
+                {on ? sort.dir === 'asc' ? <ArrowUp size={12} aria-hidden="true" /> : <ArrowDown size={12} aria-hidden="true" /> : null}
+              </button>
+            </span>
+          )
+        })}
       </div>
       <ul>
         {coins.map((c) => (
@@ -76,13 +106,15 @@ function ListCells({ coin: c }: { coin: LiveCoin }) {
       <Cell label="Holders">{c.holders ?? '–'}</Cell>
       <Cell label="Top 10">{c.top10Pct !== null ? `${Math.round(c.top10Pct)}%` : '–'}</Cell>
       <Cell label="Dev coins" className={c.devLaunches !== null && c.devLaunches > 5 ? 'text-warn' : ''}>{c.devLaunches ?? '–'}</Cell>
-      <div className="col-span-2 md:col-span-1"><RiskLine coin={c} /></div>
+      <Cell label="Copies" className={c.sameTicker ? 'text-warn' : ''}>{c.sameTicker ?? '–'}</Cell>
+      <div className="col-span-2 md:col-span-1"><RiskLine coin={c} copies={false} /></div>
       <Cell label="Age" className="hidden md:block">{since(c.launchedMs ?? c.pairCreatedMs)}</Cell>
     </div>
   )
 }
 
-export function RiskLine({ coin: c }: { coin: LiveCoin }) {
+// Risk flags of a coin: [text, warn]. Warn items count for the Risk sort on the coins page.
+export function riskItems(c: LiveCoin, copies = true) {
   const items: [string, boolean][] = []
   if (c.nameTricks.includes('hidden')) items.push(['hidden characters in name', true])
   if (c.nameTricks.includes('mixed')) items.push(['look-alike letters in name', true])
@@ -90,8 +122,14 @@ export function RiskLine({ coin: c }: { coin: LiveCoin }) {
   if (c.mcNotBacked) items.push(['MC not backed by liquidity', true])
   if (c.domainYoung && c.domainCreatedMs) items.push([`domain ${since(c.domainCreatedMs)} old`, true])
   if (c.freeHost) items.push(['free hosting, no domain', true])
-  if (c.sameTicker) items.push([`${c.sameTicker} other ${c.sameTicker === 1 ? 'coin' : 'coins'} with this ticker`, false])
+  if (copies && c.sameTicker) items.push([`${c.sameTicker} other ${c.sameTicker === 1 ? 'coin' : 'coins'} with this ticker`, false])
   if (c.dex && c.dex !== 'pons') items.push([c.dex, false])
+  return items
+}
+
+// The table has its own Copies column, so it leaves the ticker count out (copies={false}).
+export function RiskLine({ coin: c, copies = true }: { coin: LiveCoin; copies?: boolean }) {
+  const items = riskItems(c, copies)
   if (!items.length) return <span className="font-mono text-xs text-muted">{c.checkedMs ? 'nothing flagged' : 'not checked yet'}</span>
   return (
     <span className="flex min-w-0 flex-wrap gap-x-3 gap-y-1 font-mono text-xs text-muted">

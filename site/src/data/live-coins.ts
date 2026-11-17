@@ -84,17 +84,27 @@ export function countCheck(ca: string) {
   fetch(`/api/check/${ca.trim().toLowerCase()}`, { method: 'POST', keepalive: true }).catch(() => {})
 }
 
+// The last good answer per path, for this tab: going back to /coins from a coin page shows the list at once while a
+// fresh copy loads behind it.
+const seen = new Map<string, Answer>()
+
 export function useApi(path: string): ApiState {
-  const [state, setState] = useState<ApiState>({ loading: true, failed: false, notFound: false, data: null })
+  const [state, setState] = useState<ApiState>(() => {
+    const kept = seen.get(path)
+    return { loading: !kept, failed: false, notFound: false, data: kept ?? null }
+  })
   useEffect(() => {
     let live = true
-    setState((s) => ({ ...s, loading: true }))
+    const kept = seen.get(path)
+    // No kept copy: keep showing what is there (the coin page shows the same coin while ?fresh= reloads it after a scan).
+    setState((s) => (kept ? { loading: false, failed: false, notFound: false, data: kept } : { ...s, loading: true }))
     fetch(path)
       .then(async (r) => {
         const data = (await r.json()) as Answer
+        if (r.ok) seen.set(path, data)
         if (live) setState({ loading: false, failed: !r.ok && r.status !== 404, notFound: r.status === 404, data })
       })
-      .catch(() => live && setState({ loading: false, failed: true, notFound: false, data: null }))
+      .catch(() => live && setState(kept ? { loading: false, failed: false, notFound: false, data: kept } : { loading: false, failed: true, notFound: false, data: null }))
     return () => {
       live = false
     }

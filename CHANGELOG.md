@@ -11,6 +11,8 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Added
 
+- Coins page: every column header sorts (press again to flip; coins with no data stay at the bottom), and a new
+  Copies column (other contracts with the same ticker). Phones get a sort row with a high/low switch.
 - Favicon (the LegitScan mark, light and dark tabs), app icons, and a share image: a link to the site in WhatsApp,
   Telegram, X or Discord now shows the glass mark with "LegitScan, tech coins with a proven address". Images rendered
   with Remotion (`og.jpg` 1200x630).
@@ -51,6 +53,9 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Fixed
 
+- Coins page slow (17 Nov: list at ~6.6 s from the Miami edge). The API asked D1 (in APAC) ~9 times one after another,
+  ~350 ms a round trip; the reads now go out together. The edge copy is kept 10 minutes and rebuilt in the background
+  after a minute, and the browser keeps the last answer, so going back to /coins shows the list at once.
 - A launch form or CoinGecko page that names the same X account and website as before no longer voids the X match.
   On 17 Nov reading 20 CoinGecko pages took Legit away from 15 coins (KUDO, WORM, ROUTE, ...) for an hour. Only an X
   account or website new to us voids it now; the coin is queued for a fresh check either way.
