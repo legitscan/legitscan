@@ -66,6 +66,9 @@ export type Stats = {
   legit: number
   legitPlus: number
   claims: number
+  views: number
+  viewsToday: number
+  viewsSince: string | null
   latest: { website: LatestPass | null; x: LatestPass | null; github: LatestPass | null; dev: LatestPass | null }
 }
 

@@ -7,6 +7,13 @@ export function StatsPage() {
   const { loading, failed, data } = useApi('/api/stats')
   const s = data?.stats
   const rows: [string, number | undefined, string][] = [
+    [
+      'Coins checked by visitors',
+      s?.views,
+      s?.viewsSince
+        ? `Coin pages opened on this site, each visitor and coin counted once a day. ${s.viewsToday.toLocaleString('en-US')} today, counted since ${s.viewsSince}.`
+        : 'Coin pages opened on this site, each visitor and coin counted once a day. Counting starts with the first visit.',
+    ],
     ['Coins seen on Robinhood Chain', s?.coins, 'Every Pons launch plus coins from the busiest pools.'],
     ['At or above $5k market cap', s?.overFloor, 'These get the deep risk check.'],
     ['Coins with legit checks run', s?.checked, 'Coins whose market listing names a website.'],
