@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
+import { LegitStatus } from '@/components/legit-status'
 import { CoinIcon, RiskLine } from '@/components/live-coin-table'
 import { coinName, migratedMs, subName, useApi, type BoardName, type LiveCoin } from '@/data/live-coins'
 import { pctText, shortCa, since, usd } from '@/format-coin'
@@ -86,7 +87,7 @@ function BoardRow({ coin: c, board }: { coin: LiveCoin; board: BoardName }) {
         <div className="flex items-baseline gap-2">
           <span className="truncate font-semibold">{coinName(c)}</span>
           {subName(c) && <span className="min-w-0 truncate text-sm text-muted">{subName(c)}</span>}
-          {c.legit && <span className="shrink-0 font-mono text-xs text-pass">{c.legitLevel === 2 ? 'legit+' : 'legit'}</span>}
+          <span className="shrink-0"><LegitStatus coin={c} compact /></span>
           <span className="num ml-auto shrink-0 text-xs text-muted" title="Age since launch">{since(c.launchedMs)}</span>
         </div>
         <div className="mt-0.5 flex flex-wrap gap-x-3 font-mono text-xs text-muted">

@@ -11,6 +11,8 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Added
 
+- Coins page: proof tabs with counts (All coins, Legit, Legit+, CA on site), market cap and sort as plain choices
+  instead of dropdowns, and 25 coins a page. Titled "Every coin and its proof".
 - Name tricks: a token name with hidden characters that change how it is displayed (two tokens show as USDT this
   way) or with look-alike letters from another alphabet gets a warning, and is shown as it is really written.
 - CoinGecko page links: for coins listed on CoinGecko, the website and X account on their CoinGecko page are read
@@ -20,11 +22,19 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Changed
 
+- One readable verdict per coin on the coins list and the boards: Legit+, Legit with what proved it, CA on site, Not
+  proven, Not checked or No website. The old row of small marks pushed the word "legit" over the MC column.
+- CoinGecko pages are read 20 a run instead of 5.
 - Launch forms of coins found before 17 Nov are looked up 50 a run instead of 10 (ZOLVA waited behind 101 coins).
 - The collector checks 100 coins a run instead of 25, eight at a time (17 Nov: 223 coins were waiting).
 
 ### Fixed
 
+- A Legit level could rest on an X account match made before the launch form or CoinGecko page was read (ZEAL: form
+  @zealthemascot, site @ZEALZdotfun). New team links now void the old match and queue the coin; 58 stale matches were
+  voided on 17 Nov.
+- The coins list showed only the 100 biggest coins (down to $230k MC), so RUSHR, ZOLVA and most coins were missing.
+  It now lists every coin over $5k.
 - A website link with a contract address in it (a launchpad or explorer page for the token, like NOVAAI's CoinGecko
   "website") is no longer read as the project's site: such a page always shows the address.
 - The GeckoTerminal stage stops after 6 minutes, so the legit checks always get their turn: on 17 Nov it took 15.5 of
