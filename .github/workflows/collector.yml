@@ -39,4 +39,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           RPC_URLS: ${{ secrets.RPC_URLS }}
           LOGS_RPC_URLS: ${{ secrets.LOGS_RPC_URLS }}
+          GITHUB_TOKEN: ${{ github.token }} # read-only, for the GitHub check (1,000 API calls an hour)
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }} # optional paid X API; empty = tweets only from sites and /claim
+          COINGECKO_API_KEY: ${{ secrets.COINGECKO_API_KEY }} # free Demo key; the CoinGecko list is read once an hour
           BACKFILL: ${{ inputs.backfill }}

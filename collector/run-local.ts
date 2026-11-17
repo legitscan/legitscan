@@ -4,7 +4,8 @@
 //   node run-local.ts --sweep    price every known coin once (~1 hour for 486k), then 60 deep checks
 //   node run-local.ts --report   print the coins at/above $5k MC without collecting
 import { mkdirSync } from "node:fs";
-import { runCollect, readCoins } from "./src/collect-run.ts";
+import { runCollect } from "./src/collect-run.ts";
+import { readCoins } from "./src/read-coins.ts";
 import { createRpcPool, loadKeys, rpcNodes } from "./src/rpc-pool.ts";
 import { createSources, paced } from "./src/market-sources.ts";
 import { openSqlite } from "./src/sqlite-adapter.ts";
@@ -30,6 +31,11 @@ if (arg !== "--report") {
     launchCalls: backfill ? 200 : 3,
     dexBatches: arg === "--sweep" ? 17_000 : backfill ? 600 : 20,
     deepCoins: arg === "--sweep" ? 60 : backfill ? 40 : 15,
+    checkFetch: net,
+    checkCoins: backfill ? 60 : 25, // every coin with a website once an hour
+    githubToken: process.env.GITHUB_TOKEN,
+    xBearer: process.env.X_BEARER_TOKEN, // paid X API, empty until the owner buys credit and sets the secret
+    coingeckoKey: process.env.COINGECKO_API_KEY, // free Demo key, set by the owner
     log: (m) => console.log(`[${((Date.now() - t0) / 1000).toFixed(0)}s] ${m}`),
   });
   console.log(JSON.stringify({ seconds: Math.round((Date.now() - t0) / 1000), ...stats, errors: stats.errors.slice(0, 10) }, null, 2));

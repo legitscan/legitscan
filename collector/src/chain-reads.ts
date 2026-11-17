@@ -1,6 +1,7 @@
 // Reads from the Robinhood Chain RPC: Pons launches, the dev wallet's token flows, burned supply.
 // The public node keeps no old state (no archive), so everything here comes from event logs plus today's state.
 // Tested live 2026-11-16: getLogs allows 9,999,999 blocks and 10,000 logs per call; it answers 429 when pushed.
+import { decodeFunctionData, parseAbi } from "viem";
 import { decodeText, type RpcClient } from "./contract-facts.ts";
 import { HttpError } from "./http-json.ts";
 
@@ -56,7 +57,7 @@ export function blockAt(clock: ChainClock, ms: number): number {
   return Math.max(0, Math.min(clock.head, Math.round(clock.head - (clock.headMs - ms) * clock.blocksPerMs)));
 }
 
-export type Launch = { token: string; pool: string; creator: string; block: number };
+export type Launch = { token: string; pool: string; creator: string; block: number; tx: string | null };
 
 export function parseLaunch(log: unknown): Launch | null {
   if (!isObj(log) || String(log.address).toLowerCase() !== LAUNCHER) return null;
@@ -64,7 +65,8 @@ export function parseLaunch(log: unknown): Launch | null {
   if (!Array.isArray(t) || t.length !== 4 || String(t[0]).toLowerCase() !== LAUNCH_TOPIC) return null;
   const [token, pool, creator] = [topicAddr(t[1]), topicAddr(t[2]), topicAddr(t[3])];
   const block = toNum(log.blockNumber);
-  return token && pool && creator && block ? { token, pool, creator, block } : null;
+  const tx = typeof log.transactionHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(log.transactionHash) ? log.transactionHash : null;
+  return token && pool && creator && block ? { token, pool, creator, block, tx } : null;
 }
 
 // Pons launches after `fromBlock`, walking forward. The span grows while windows are light and halves when the node
@@ -205,4 +207,101 @@ export async function readCurves(rpc: RpcClient, coins: { ca: string; pool: stri
     if (curve && supply !== null) out.set(c.ca, { ...curve, supply, symbol: sym?.ok ? decodeText(sym.value) : null, name: name?.ok ? decodeText(name.value) : null });
   }
   return out;
+}
+
+// Who launched a token that did not come through Pons: the sender of the transaction that first minted it (the first
+// Transfer from 0x0). A direct deploy mints in the constructor, so that is the deployer; a launchpad factory mints in
+// the user's call, so that is the user.
+// Walks FORWARD from `from`, one window at a time: the first window holding any mint holds the earliest one, so no
+// guess about where to stop. `from` should sit before the token existed: callers start well before its first pool
+// (that time is an estimate, off by an hour on 17 Nov) or at block 0 when the pool time is unknown or older than the
+// chain's own clock (CASHCAT: DexScreener says 18 Jun).
+export async function findCreator(logsRpc: RpcClient, rpc: RpcClient, token: string, from: number, head: number, maxCalls = 14): Promise<{ creator: string; block: number; calls: number } | null> {
+  let calls = 0;
+  let span = MAX_SPAN;
+  let first: { block: number; tx: string } | undefined;
+  for (let lo = Math.max(0, from); lo <= head && calls < maxCalls; ) {
+    const hi = Math.min(head, lo + span - 1);
+    const [r] = await logsRpc.batch([{ method: "eth_getLogs", params: [{ address: token, topics: [TRANSFER_TOPIC, word(ZERO)], fromBlock: hex(lo), toBlock: hex(hi) }] }]);
+    calls++;
+    if (!r.ok || !Array.isArray(r.value)) {
+      const why = r.ok ? "not a list" : r.message;
+      if (tooManyLogs(why) && span > 1000) {
+        span = Math.floor(span / 2);
+        continue;
+      }
+      throw new HttpError(200, `mint getLogs ${lo}-${hi}: ${why.slice(0, 160)}`);
+    }
+    first = r.value
+      .map((l) => ({ block: toNum(isObj(l) ? l.blockNumber : null), tx: isObj(l) && typeof l.transactionHash === "string" ? l.transactionHash : null }))
+      .filter((l): l is { block: number; tx: string } => l.block !== null && l.tx !== null)
+      .sort((a, b) => a.block - b.block)[0];
+    if (first) break;
+    lo = hi + 1;
+  }
+  if (!first) return null;
+  const tx = await one(rpc, "eth_getTransactionByHash", [first.tx]);
+  calls++;
+  const sender = isObj(tx) && typeof tx.from === "string" && /^0x[0-9a-fA-F]{40}$/.test(tx.from) ? tx.from.toLowerCase() : null;
+  return sender ? { creator: sender, block: first.block, calls } : null;
+}
+
+// What the dev typed into the Pons launch form, read from the launch transaction (17 Nov: 59 of 60 recent launches
+// called launchAndBuy, whose ABI is verified; 45 of 60 gave a website, 52 an X account). The form is self-declared,
+// like a DexScreener listing: it says where to look, the website check decides.
+const LAUNCH_ABI = parseAbi([
+  "function launchAndBuy((string,string,string,string,(string,string,string,string,string),address,uint16,bool,bytes32,bytes32),uint256,address,uint256,uint256,address,address[])",
+]);
+export type LaunchInfo = { description: string | null; website: string | null; x: string | null; telegram: string | null; github: string | null };
+
+// Sorts the form's links by what they point at, so the order of the five social slots does not matter.
+export function sortLinks(links: string[], description: string | null): LaunchInfo {
+  const out: LaunchInfo = { description, website: null, x: null, telegram: null, github: null };
+  for (const raw of links) {
+    const u = raw.trim();
+    if (!/^https?:\/\/[^\s]+$/i.test(u) || u.length > 300) continue;
+    const x = u.match(/^https?:\/\/(?:www\.|mobile\.)?(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/?(?:[?#].*)?$/i);
+    if (x) out.x ??= x[1];
+    else if (/^https?:\/\/(?:www\.)?t(?:elegram)?\.me\//i.test(u)) out.telegram ??= u;
+    else if (/^https?:\/\/(?:www\.)?github\.com\//i.test(u)) out.github ??= u;
+    else if (!/^https?:\/\/(?:www\.)?(?:discord\.(?:gg|com)|(?:x|twitter)\.com)\//i.test(u)) out.website ??= u;
+  }
+  return out;
+}
+
+// launchAndBuy decoded by its ABI; any other launch call (1 in 60 used an unlisted function) falls back to the
+// http(s) links written in its input.
+export function parseLaunchInput(input: string): LaunchInfo | null {
+  if (!/^0x[0-9a-fA-F]*$/.test(input) || input.length < 10) return null;
+  try {
+    const d = decodeFunctionData({ abi: LAUNCH_ABI, data: input as `0x${string}` });
+    const form = d.args[0] as readonly [string, string, string, string, readonly string[], ...unknown[]];
+    return sortLinks([...form[4]], form[3]?.slice(0, 500) || null);
+  } catch {
+    let text = ""; // bytes as characters, no Buffer (the Pages function runs without Node's)
+    for (let i = 10; i + 1 < input.length; i += 2) text += String.fromCharCode(Number.parseInt(input.slice(i, i + 2), 16));
+    return sortLinks(text.match(/https?:\/\/[\x21-\x7e]+/g) ?? [], null);
+  }
+}
+
+// Launch forms for up to any number of launch transactions, 10 per RPC request. Missing or unreadable = null.
+export async function readLaunchInfos(rpc: RpcClient, txs: string[]): Promise<Map<string, LaunchInfo | null>> {
+  const out = new Map<string, LaunchInfo | null>();
+  for (let i = 0; i < txs.length; i += 10) {
+    const part = txs.slice(i, i + 10);
+    const res = await rpc.batch(part.map((h) => ({ method: "eth_getTransactionByHash", params: [h] })));
+    part.forEach((h, j) => {
+      const r = res[j];
+      const input = r?.ok && isObj(r.value) && typeof r.value.input === "string" ? r.value.input : null;
+      out.set(h, input ? parseLaunchInput(input) : null);
+    });
+  }
+  return out;
+}
+
+// The launch transaction of a Pons coin whose hash was not kept (coins found before 17 Nov): its launch event.
+export async function launchTx(logsRpc: RpcClient, token: string, block: number): Promise<string | null> {
+  const [r] = await logsRpc.batch([{ method: "eth_getLogs", params: [{ address: LAUNCHER, topics: [LAUNCH_TOPIC, word(token)], fromBlock: hex(block), toBlock: hex(block) }] }]);
+  const log = r.ok && Array.isArray(r.value) ? r.value[0] : null;
+  return isObj(log) && typeof log.transactionHash === "string" ? log.transactionHash : null;
 }

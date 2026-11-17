@@ -8,3 +8,4 @@ dist/
 PLAN.md
 CLAUDE.md
 .wrangler/
+*.tsbuildinfo
