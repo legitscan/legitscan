@@ -6,8 +6,6 @@ LegitScan checks tech coins on Robinhood Chain against the places a project cont
 that site links, its GitHub, and the chain itself. Rug risk and what the creator did with the token are shown next to
 it, as separate reports.
 
-**Live:** [legitscan.pages.dev](https://legitscan.pages.dev)
-
 > A scan helps you decide faster. It does not decide for you. The checks read public facts, which can be wrong or out
 > of date, and a coin that passes every check can still lose its value. Nothing here is financial advice.
 
