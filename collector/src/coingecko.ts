@@ -110,7 +110,7 @@ export async function refreshCoingeckoLinks(db: D1Like, fetch: Fetcher, apiKey: 
     if (!res.ok) throw new Error(`CoinGecko coin ${id} answered HTTP ${res.status}`);
     const { website, x } = parseCoingeckoLinks(await res.json());
     await db.prepare("UPDATE coins SET cg_website = ?, cg_x = ?, cg_links_at_ms = ? WHERE ca = ?").bind(website, x, now, c.ca).run();
-    if (website !== c.cg_website || x !== c.cg_x) await newTeamLinks(db, c.ca, now);
+    if (website !== c.cg_website || x !== c.cg_x) await newTeamLinks(db, c.ca, now, { website, x });
     read++;
   }
   return read;

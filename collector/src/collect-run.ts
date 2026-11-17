@@ -137,7 +137,7 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
         `UPDATE coins SET launch_desc = ?, launch_website = ?, launch_x = ?, launch_telegram = ?, launch_github = ?, launch_info_at_ms = ? WHERE ca = ?`,
         f?.description ?? null, f?.website ?? null, f?.x ?? null, f?.telegram ?? null, f?.github ?? null, o.now(), c.ca,
       );
-      if (f?.x || f?.website) await newTeamLinks(o.db, c.ca, o.now());
+      if (f?.x || f?.website) await newTeamLinks(o.db, c.ca, o.now(), { website: f.website ?? null, x: f.x ?? null });
     }
     s.launchForms = todo.length;
     log(`launch forms: ${todo.length} read, ${todo.filter((c) => forms.get(c.launch_tx)?.website).length} with a website`);

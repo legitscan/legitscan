@@ -43,14 +43,33 @@ export async function saveChecks(db: D1Like, ca: string, results: CheckResult[],
     .run();
 }
 
-// New links typed by the team (a Pons launch form, a CoinGecko page) make the stored X account match stale: it was
+// New links typed by the team (a Pons launch form, a CoinGecko page) can make the stored X account match stale: it was
 // made without them, and the Legit level trusts it (17 Nov: ZEAL's form names @zealthemascot, its site @ZEALZdotfun, yet
-// a match from before the form was read made it Legit). Void it and queue the coin, so the next run compares again.
-export async function newTeamLinks(db: D1Like, ca: string, now: number) {
-  await db
-    .prepare("UPDATE checks SET status = 'none', reason = ?, checked_ms = ?, passed_ms = NULL WHERE ca = ? AND kind = 'xmatch'")
-    .bind("New links from the launch form or CoinGecko page. Compared again at the next check.", now, ca)
-    .run();
+// a match from before the form was read made it Legit). The coin is always queued so the next run compares again. The
+// match is voided only when a link is new to us: an X account no other source names, or a website not yet listed.
+// Links that repeat what was compared keep it (17 Nov: reading 20 CoinGecko pages that named the same X and site as
+// before voided 15 Legit coins for an hour). Call after saving the new links on the coin.
+export async function newTeamLinks(db: D1Like, ca: string, now: number, links: { website: string | null; x: string | null }) {
+  const coin = await db
+    .prepare("SELECT websites, launch_website, cg_website, launch_x, x_handle, cg_x FROM coins WHERE ca = ?")
+    .bind(ca)
+    .first<{ websites: string | null; launch_website: string | null; cg_website: string | null; launch_x: string | null; x_handle: string | null; cg_x: string | null }>();
+  const bare = (u: string) => u.toLowerCase().replace(/^https?:\/\/(www\.)?/, "").replace(/\/+$/, "");
+  let listed: string[] = [];
+  try {
+    listed = JSON.parse(coin?.websites ?? "[]");
+  } catch {}
+  const sites = [...(Array.isArray(listed) ? listed : []), coin?.launch_website, coin?.cg_website].filter((u): u is string => typeof u === "string").map(bare);
+  const handles = [coin?.launch_x, coin?.x_handle, coin?.cg_x].filter((h): h is string => !!h).map((h) => h.toLowerCase());
+  // The new value is saved already, so "known" means it shows up at least twice: once as itself, once from elsewhere.
+  const known = (list: string[], v: string) => list.filter((w) => w === v).length >= 2;
+  const fresh = (links.x && !known(handles, links.x.toLowerCase())) || (links.website && !known(sites, bare(links.website)));
+  if (fresh) {
+    await db
+      .prepare("UPDATE checks SET status = 'none', reason = ?, checked_ms = ?, passed_ms = NULL WHERE ca = ? AND kind = 'xmatch'")
+      .bind("New links from the launch form or CoinGecko page. Compared again at the next check.", now, ca)
+      .run();
+  }
   await db.prepare("INSERT INTO check_queue (ca, wanted_ms) VALUES (?, ?) ON CONFLICT (ca) DO UPDATE SET wanted_ms = excluded.wanted_ms").bind(ca, now).run();
 }
 

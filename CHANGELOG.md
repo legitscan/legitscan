@@ -36,6 +36,9 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ### Fixed
 
+- A launch form or CoinGecko page that names the same X account and website as before no longer voids the X match.
+  On 17 Nov reading 20 CoinGecko pages took Legit away from 15 coins (KUDO, WORM, ROUTE, ...) for an hour. Only an X
+  account or website new to us voids it now; the coin is queued for a fresh check either way.
 - Missed coins, 17 Nov: a site that lists many contracts now counts when it is named after the coin and no other coin
   on that page could claim the name (a copy on a launchpad named like the coin still fails). OSTRA, QUANTA, SCROOGE,
   PONS and 12 more were read as "a page listing many coins".
