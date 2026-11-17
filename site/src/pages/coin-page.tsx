@@ -158,7 +158,7 @@ function Shell({ children }: { children: ReactNode }) {
 const KINDS: [CheckKind, string][] = [
   ['website', "CA on the project's website"],
   ['x', 'CA posted by the X account the site links'],
-  ['xmatch', 'Same X account on the launch form, the listing and the website'],
+  ['xmatch', 'Same X account on the launch form, the listing, CoinGecko and the website'],
   ['dev', 'Signed by the wallet that launched the token'],
   ['github', 'GitHub the site links, pushed in the last 30 days'],
   ['githubca', 'CA in that GitHub (README or description), a bonus'],
@@ -173,15 +173,15 @@ const NAME_TRICK_TEXT = {
 } as const
 
 const LEVEL_TEXT = {
-  0: 'Not proven yet. Legit needs the website to show this address, plus the X account from the Pons launch form matching the one the site links. Legit+ needs a tweet, the GitHub README or the launch wallet\'s signature to carry the address too.',
-  1: "Legit: the project's website shows this address, and the X account typed into the Pons launch form is the one that site links. For Legit+, a tweet from that account, the GitHub README or the launch wallet's signature has to carry the address.",
+  0: 'Not proven yet. Legit needs the website to show this address, plus the X account from the Pons launch form or the CoinGecko page matching the one the site links. Legit+ needs a tweet, the GitHub README or the launch wallet\'s signature to carry the address too.',
+  1: "Legit: the project's website shows this address, and the X account typed into the Pons launch form or onto its CoinGecko page is the one that site links. For Legit+, a tweet from that account, the GitHub README or the launch wallet's signature has to carry the address.",
   2: "Legit+: the project's website shows this address, and a second channel the project controls carries it too (see the rows below).",
 } as const
 
 // Before the first check runs: say what the listing has, without judging it.
 function notChecked(c: LiveCoin, kind: CheckKind) {
   const site = c.websites[0] ?? c.launchForm?.website
-  if (kind === 'website') return site ? `Website: ${site.replace(/^https?:\/\//, '')}. Not read yet.` : 'No website on the market listing or the launch form, so there is nothing to check.'
+  if (kind === 'website') return site ? `Website: ${site.replace(/^https?:\/\//, '')}. Not read yet.` : 'No website on the market listing, the launch form or CoinGecko yet, so there is nothing to check.'
   if (kind === 'x') return 'Waits for the website check.'
   if (kind === 'coingecko') return 'Not compared with CoinGecko yet.'
   if (kind === 'dev') return c.dev ? `Not signed. The launch wallet is ${shortCa(c.dev)}; its owner can sign on the claim page.` : 'We do not know the launch wallet yet.'

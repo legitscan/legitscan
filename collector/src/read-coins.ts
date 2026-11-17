@@ -68,7 +68,7 @@ export async function readCoins(db: D1Like, floor = 5_000, limit = 50, only?: st
   if (only) rows.sort((a, b) => only.indexOf(a.ca) - only.indexOf(b.ca)); // keep the board's order
   const checks = await readChecks(db, rows.map((r) => r.ca));
   return rows.map((c) => {
-    const level = legitLevel(checks.get(c.ca), c.launch_x ?? null);
+    const level = legitLevel(checks.get(c.ca), c.launch_x ?? c.cg_x ?? null);
     return {
       ca: c.ca,
       symbol: cleanName(c.symbol),
@@ -127,8 +127,8 @@ const NO_CHECKS: Checks = { website: null, x: null, xmatch: null, github: null, 
 // Legit report (owner, 17 Nov: "dua rapor"; the Dev report is separate and never moves these levels):
 //   2 Legit+ = the website shows the CA, and a channel the project controls carries it too: a tweet from the X account
 //              the site links, the README of the GitHub the site links, or a signature from the launch wallet.
-//   1 Legit  = the website shows the CA, and the X account the dev typed into the Pons launch form is the one the
-//              website links (xmatch passes with the launch form as one of its sources).
+//   1 Legit  = the website shows the CA, and the X account the team typed into the Pons launch form or onto the CoinGecko
+//              page (owner, 17 Nov: "setara formulir") is the one the website links (xmatch passes with it as a source).
 //   0        = not proven.
 export function legitLevel(c: Checks | undefined, launchX: string | null): 0 | 1 | 2 {
   if (c?.website?.status !== "pass") return 0;
@@ -178,7 +178,7 @@ export async function readStats(db: D1Like, floor = 5_000) {
                  AND EXISTS (SELECT 1 FROM checks k WHERE k.ca = w.ca AND k.kind IN ('x', 'githubca', 'dev') AND k.status = 'pass')) AS legit_plus,
               (SELECT count(*) FROM checks w JOIN coins c ON c.ca = w.ca WHERE w.kind = 'website' AND w.status = 'pass'
                  AND (EXISTS (SELECT 1 FROM checks k WHERE k.ca = w.ca AND k.kind IN ('x', 'githubca', 'dev') AND k.status = 'pass')
-                   OR (c.launch_x IS NOT NULL AND EXISTS (SELECT 1 FROM checks k WHERE k.ca = w.ca AND k.kind = 'xmatch' AND k.status = 'pass')))) AS legit,
+                   OR ((c.launch_x IS NOT NULL OR c.cg_x IS NOT NULL) AND EXISTS (SELECT 1 FROM checks k WHERE k.ca = w.ca AND k.kind = 'xmatch' AND k.status = 'pass')))) AS legit,
               (SELECT count(*) FROM claims) AS claims`,
     )
     .bind(floor)

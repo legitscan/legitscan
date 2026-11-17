@@ -247,6 +247,9 @@ test("X account match: launch form, listing and website compared, no X API", () 
   assert.equal(m(site([]), "solo", null).status, "none"); // one source: nothing to compare
   assert.equal(m(site(["x1"], 0), "x1", null).status, "none"); // site not read: does not count as a source
   assert.equal(m(site(["a", "b"]), "b", null).status, "pass"); // the site may link several; the named one is among them
+  // The CoinGecko page is one more named source: it must agree with the others.
+  assert.equal(checkXMatch(site(["mowcatmeme"]), null, null, "mowcatmeme").status, "pass");
+  assert.match(checkXMatch(site([]), "realteam", null, "someoneelse").reason, /^The launch form names @realteam but the CoinGecko page names @someoneelse\.$/);
 });
 
 test("links in a module the page's script imports are found (WAFERMAP, 17 Nov)", async () => {

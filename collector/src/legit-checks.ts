@@ -346,26 +346,31 @@ export async function checkGithub(fetch: Fetcher, site: SiteRead, now: number, h
 }
 
 // Do the places that name the coin's X account agree? No X API needed, so it works from a coin's first minute.
-// Sources: the Pons launch form, the market listing (DexScreener / GeckoTerminal) and the links on the website itself.
+// Sources: the Pons launch form, the market listing (DexScreener / GeckoTerminal), the CoinGecko page and the links on
+// the website itself.
 // Agreement is a consistency signal, not proof the account posted the CA; a mismatch is a warning worth showing
 // (NOVAAI, 17 Nov: launch form @lalarochaas, listing and site @NOVAAI_77).
-export function checkXMatch(site: SiteRead, launchX: string | null, listingX: string | null): CheckResult {
+export function checkXMatch(site: SiteRead, launchX: string | null, listingX: string | null, cgX: string | null = null): CheckResult {
   const r = (status: CheckStatus, reason: string): CheckResult => ({ kind: "xmatch", status, reason, sourceUrl: null, atMs: null });
   const at = (h: string) => "@" + h;
   const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
+  const cap = (s: string) => s[0].toUpperCase() + s.slice(1);
   const siteHandles = site.pagesRead > 0 ? site.xHandles : [];
   const named: [string, string][] = [];
   if (launchX) named.push(["the launch form", launchX]);
   if (listingX) named.push(["the market listing", listingX]);
+  if (cgX) named.push(["the CoinGecko page", cgX]);
   const sources = named.length + (siteHandles.length ? 1 : 0);
   if (sources < 2) {
     const only = named[0] ? `Only ${named[0][0]} names an X account (${at(named[0][1])}).` : siteHandles.length ? `Only the website links X accounts (${siteHandles.map(at).join(", ")}).` : "No X account is named anywhere.";
     return r("none", `${only} Nothing to compare it with yet.`);
   }
-  if (launchX && listingX && !same(launchX, listingX)) return r("fail", `The launch form names ${at(launchX)} but the market listing names ${at(listingX)}.`);
+  for (const [where, h] of named.slice(1)) {
+    if (!same(named[0][1], h)) return r("fail", `${cap(named[0][0])} names ${at(named[0][1])} but ${where} names ${at(h)}.`);
+  }
   if (siteHandles.length) {
     for (const [where, h] of named) {
-      if (!siteHandles.some((s) => same(s, h))) return r("fail", `${where[0].toUpperCase()}${where.slice(1)} names ${at(h)}, but the website links ${siteHandles.map(at).join(", ")}.`);
+      if (!siteHandles.some((s) => same(s, h))) return r("fail", `${cap(where)} names ${at(h)}, but the website links ${siteHandles.map(at).join(", ")}.`);
     }
   }
   const h = named[0]?.[1] ?? siteHandles[0];
@@ -374,11 +379,11 @@ export function checkXMatch(site: SiteRead, launchX: string | null, listingX: st
 }
 
 // All three checks for one coin.
-export async function checkCoin(o: { fetch: Fetcher; ca: string; websites: string[]; listedHandle: string | null; launchHandle?: string | null; claimedTweets: string[]; now: number; githubToken?: string; xBearer?: string; skipGithub?: boolean; maxPages?: number }) {
+export async function checkCoin(o: { fetch: Fetcher; ca: string; websites: string[]; listedHandle: string | null; launchHandle?: string | null; cgHandle?: string | null; claimedTweets: string[]; now: number; githubToken?: string; xBearer?: string; skipGithub?: boolean; maxPages?: number }) {
   const site = await readSites(o.fetch, o.websites, o.ca, PAGES_PER_SITE, Date.now, o.maxPages);
   const website: CheckResult = { kind: "website", status: site.status, reason: site.reason, sourceUrl: site.foundAt, atMs: null };
-  const x = await checkX(o.fetch, site, o.ca, o.claimedTweets, o.listedHandle ?? o.launchHandle ?? null, o.xBearer);
-  const xmatch = checkXMatch(site, o.launchHandle ?? null, o.listedHandle);
+  const x = await checkX(o.fetch, site, o.ca, o.claimedTweets, o.listedHandle ?? o.launchHandle ?? o.cgHandle ?? null, o.xBearer);
+  const xmatch = checkXMatch(site, o.launchHandle ?? null, o.listedHandle, o.cgHandle ?? null);
   const github = o.skipGithub
     ? []
     : await checkGithub(o.fetch, site, o.now, projectHandle(site.xHandles, o.listedHandle), o.ca, o.githubToken).catch((e: Error) =>
