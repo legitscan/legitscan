@@ -252,6 +252,13 @@ test("X account match: launch form, listing and website compared, no X API", () 
   assert.match(checkXMatch(site([]), "realteam", null, "someoneelse").reason, /^The launch form names @realteam but the CoinGecko page names @someoneelse\.$/);
 });
 
+test("a link with a contract address in it is a platform page, not the project's site (NOVAAI, 17 Nov)", async () => {
+  const asked: string[] = [];
+  const fetch: Fetcher = async (url) => (asked.push(url), new Response(`CA ${CA}`, { headers: { "content-type": "text/html" } }));
+  const site = await readSites(fetch, [`https://www.ponsfamily.com/launchpad/${CA}`, `https://scan.example/token?a=${CA}`], CA);
+  assert.deepEqual([site.status, asked.length], ["none", 0]);
+});
+
 test("links in a module the page's script imports are found (WAFERMAP, 17 Nov)", async () => {
   const { fetch } = web({
     "https://wafer.example/": { body: `<script type="module" src="/assets/main-1.js"></script> CA ${CA}` },
