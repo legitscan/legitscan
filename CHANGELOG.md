@@ -9,14 +9,11 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ## [Unreleased]
 
-### Added
-
-- README: what a scan shows, how the parts fit together, the API, running it locally, configuration and limits.
-
 ## [0.2.0] - 2026-11-17
 
 ### Added
 
+- README: what a scan shows, how the parts fit together, the API, running it locally, configuration and limits.
 - Legit checks: the project's website shows the full address (the page, its scripts and data files, including modules
   a script imports), the X account that site links posted it (read through X's public embed service), the launch
   form, the market listing and the website name the same X account, GitHub activity and the address in a GitHub
