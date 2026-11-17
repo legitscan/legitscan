@@ -99,12 +99,34 @@ test("new team links void the old X account match and queue the coin", async () 
   const pass = { kind: "xmatch" as const, status: "pass" as const, reason: "The market listing and the website both name @ZEALZdotfun.", sourceUrl: null, atMs: null };
   await saveChecks(db, CA, [{ kind: "website", status: "pass", reason: "ok", sourceUrl: null, atMs: null }, pass], 1000);
   assert.equal((((await apiAnswer(db, `/api/coin/${CA}`, 2000)).body as any).coin).legitLevel, 1); // the stale match counts
-  await newTeamLinks(db, CA, 2000);
+  await newTeamLinks(db, CA, 2000, { website: null, x: "zealthemascot" });
   const coin = ((await apiAnswer(db, `/api/coin/${CA}`, 2000)).body as any).coin;
   assert.deepEqual([coin.checks.xmatch.status, coin.legitLevel], ["none", 0]);
   assert.deepEqual((await dueForChecks(db, 5_000, 2000, 10)).map((r) => r.ca), []); // no website listed: nothing to read
   const q = await db.prepare("SELECT wanted_ms FROM check_queue WHERE ca = ?").bind(CA).first<{ wanted_ms: number }>();
   assert.equal(q?.wanted_ms, 2000);
+  db.close();
+});
+
+// 17 Nov: KUDO's CoinGecko page names @kudo_archi and kudo.archi, as its launch form and listing already did. Reading it
+// voided the match and KUDO lost Legit for an hour. Links that repeat what was compared only queue the coin.
+test("team links that repeat known ones keep the X account match; a new one voids it", async () => {
+  const db = openSqlite(":memory:");
+  const CA = "0x" + "f".repeat(40);
+  await db
+    .prepare("INSERT INTO coins (ca, found_via, found_ms, mc_usd, websites, x_handle, launch_x, cg_x, cg_website) VALUES (?, 'pons', 1, 2e5, '[\"https://www.kudo.archi/\"]', 'kudo_archi', 'kudo_archi', 'Kudo_Archi', 'https://kudo.archi')")
+    .bind(CA)
+    .run();
+  const pass = { kind: "xmatch" as const, status: "pass" as const, reason: "The launch form, the market listing and the website all name @kudo_archi.", sourceUrl: null, atMs: null };
+  await saveChecks(db, CA, [{ kind: "website", status: "pass", reason: "ok", sourceUrl: null, atMs: null }, pass], 1000);
+  const level = async () => (((await apiAnswer(db, `/api/coin/${CA}`, 3000)).body as any).coin).legitLevel;
+  await newTeamLinks(db, CA, 2000, { website: "https://kudo.archi", x: "Kudo_Archi" });
+  assert.equal(await level(), 1); // same X and site in other spellings: kept
+  const q = await db.prepare("SELECT wanted_ms FROM check_queue WHERE ca = ?").bind(CA).first<{ wanted_ms: number }>();
+  assert.equal(q?.wanted_ms, 2000); // still compared again at the next check
+  await db.prepare("UPDATE coins SET cg_website = 'https://kudo-new.xyz' WHERE ca = ?").bind(CA).run();
+  await newTeamLinks(db, CA, 2500, { website: "https://kudo-new.xyz", x: "Kudo_Archi" });
+  assert.equal(await level(), 0); // a website we never read: voided until it is read
   db.close();
 });
 
