@@ -9,7 +9,7 @@
 //      Plus a few listed coins' CoinGecko pages a run, for the website and X account they link (read monthly).
 import { readContractFacts, type RpcClient } from "./contract-facts.ts";
 import { BURN_HOLDERS, MAX_SPAN, balances, blockAt, chainClock, codeCheck, devFlows, findCreator, launchTx, readCurves, readLaunchInfos, scanLaunches, timeAt, type Launch } from "./chain-reads.ts";
-import { checkAndSave, dueForChecks } from "./check-store.ts";
+import { checkAndSave, dueForChecks, newTeamLinks } from "./check-store.ts";
 import { refreshCoingecko, refreshCoingeckoLinks } from "./coingecko.ts";
 import type { D1Like } from "./d1-types.ts";
 import type { Fetcher } from "./http-json.ts";
@@ -41,7 +41,7 @@ export type RunOptions = {
   githubToken?: string; // Actions' own GITHUB_TOKEN: 1,000 GitHub API calls an hour instead of 60
   xBearer?: string; // paid X API, only when the owner sets X_BEARER_TOKEN
   coingeckoKey?: string; // CoinGecko Demo key (COINGECKO_API_KEY); no CoinGecko check without it
-  coingeckoLinks?: number; // CoinGecko coin pages read per run for their website and X account (default 5)
+  coingeckoLinks?: number; // CoinGecko coin pages read per run for their website and X account (default 20)
   log?: (msg: string) => void;
 };
 
@@ -137,6 +137,7 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
         `UPDATE coins SET launch_desc = ?, launch_website = ?, launch_x = ?, launch_telegram = ?, launch_github = ?, launch_info_at_ms = ? WHERE ca = ?`,
         f?.description ?? null, f?.website ?? null, f?.x ?? null, f?.telegram ?? null, f?.github ?? null, o.now(), c.ca,
       );
+      if (f?.x || f?.website) await newTeamLinks(o.db, c.ca, o.now());
     }
     s.launchForms = todo.length;
     log(`launch forms: ${todo.length} read, ${todo.filter((c) => forms.get(c.launch_tx)?.website).length} with a website`);
@@ -400,7 +401,7 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
       s.errors.push(`coingecko: ${(e as Error).message}`);
     }
     try {
-      const n = await refreshCoingeckoLinks(o.db, o.checkFetch, o.coingeckoKey, o.now(), o.coingeckoLinks ?? 5);
+      const n = await refreshCoingeckoLinks(o.db, o.checkFetch, o.coingeckoKey, o.now(), o.coingeckoLinks ?? 20);
       log(`coingecko links: ${n} coin pages read`);
     } catch (e) {
       s.errors.push(`coingecko links: ${(e as Error).message}`);
