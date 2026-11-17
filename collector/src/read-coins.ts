@@ -180,8 +180,8 @@ export async function readStats(db: D1Like, floor = 5_000, now = Date.now()) {
                  AND (EXISTS (SELECT 1 FROM checks k WHERE k.ca = w.ca AND k.kind IN ('x', 'githubca', 'dev') AND k.status = 'pass')
                    OR ((c.launch_x IS NOT NULL OR c.cg_x IS NOT NULL) AND EXISTS (SELECT 1 FROM checks k WHERE k.ca = w.ca AND k.kind = 'xmatch' AND k.status = 'pass')))) AS legit,
               (SELECT count(*) FROM claims) AS claims,
-              (SELECT count(*) FROM coin_views) AS views,
-              (SELECT count(*) FROM coin_views WHERE day = ?) AS views_today,
+              (SELECT coalesce(sum(n), 0) FROM coin_views) AS views,
+              (SELECT coalesce(sum(n), 0) FROM coin_views WHERE day = ?) AS views_today,
               (SELECT min(day) FROM coin_views) AS views_since`,
     )
     .bind(floor, new Date(now).toISOString().slice(0, 10))
@@ -211,7 +211,7 @@ export async function readStats(db: D1Like, floor = 5_000, now = Date.now()) {
     legit: num("legit"), // Legit and Legit+
     legitPlus: num("legit_plus"),
     claims: num("claims"),
-    // Coin pages opened by visitors (coin-views.ts), once per visitor, coin and day; counted since viewsSince.
+    // Coin pages opened by visitors (coin-views.ts), repeats included; counted since viewsSince.
     views: num("views"),
     viewsToday: num("views_today"),
     viewsSince: typeof n?.views_since === "string" ? n.views_since : null,

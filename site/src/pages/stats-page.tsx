@@ -8,11 +8,11 @@ export function StatsPage() {
   const s = data?.stats
   const rows: [string, number | undefined, string][] = [
     [
-      'Coins checked by visitors',
+      'Token checks',
       s?.views,
       s?.viewsSince
-        ? `Coin pages opened on this site, each visitor and coin counted once a day. ${s.viewsToday.toLocaleString('en-US')} today, counted since ${s.viewsSince}.`
-        : 'Coin pages opened on this site, each visitor and coin counted once a day. Counting starts with the first visit.',
+        ? `Times a coin page was opened on this site. ${s.viewsToday.toLocaleString('en-US')} today, counted since ${s.viewsSince}. Bots and our own testing are not counted.`
+        : 'Times a coin page was opened on this site. Counting starts with the first visit. Bots and our own testing are not counted.',
     ],
     ['Coins seen on Robinhood Chain', s?.coins, 'Every Pons launch plus coins from the busiest pools.'],
     ['At or above $5k market cap', s?.overFloor, 'These get the deep risk check.'],
