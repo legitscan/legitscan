@@ -41,8 +41,8 @@ export function HomePage() {
         n="02"
         name="X account"
         title="The account it links has to post it."
-        body="The X handle comes from the website, never from a search. Then a tweet from that exact account has to carry the same address. Replies and quotes from other people do not count."
-        link={['/method#x', 'Why the handle comes from the site']}
+        body="The X handle comes from the website, never from a search. Then a tweet from that exact account has to carry the same address. Replies and quotes from other people do not count. For now the team sends us that tweet on the claim page. Later we read it through the X API, so nobody has to send it in."
+        link={['/claim', 'Send your tweet on the claim page']}
         flip
         bg
       >
@@ -253,7 +253,7 @@ function Copies() {
 function NotClaimed() {
   const points = [
     ['Legit is not safe.', 'A proven address tells you who made the coin. It does not tell you what they will do with it.'],
-    ['We cannot read X freely.', 'A tweet reaches us from the dev, the community or a market listing. We check it ourselves, but we do not search all of X.'],
+    ['We cannot read X freely yet.', 'For now a tweet reaches us from the claim page, the project website or a market listing. We check it ourselves, but we do not search all of X. Reading it through the X API comes later.'],
     ['A fake project can pass.', 'Someone can build a site, an account and a token together. The identity is then real, and the risk column has to speak.'],
   ]
   return (
