@@ -6,6 +6,7 @@ import { checkAndSave } from "./check-store.ts";
 import type { D1Like } from "./d1-types.ts";
 import type { Fetcher } from "./http-json.ts";
 import { readTweet, TWEET_URL, REQUEST_PAGES } from "./legit-checks.ts";
+import { cleanName } from "./name-tricks.ts";
 
 export const CLAIMS_PER_HOUR = 5;
 const ADDRESS = /0x[0-9a-fA-F]{40}/g;
@@ -60,5 +61,5 @@ export async function claimAnswer(input: unknown, env: ClaimEnv): Promise<Answer
   // collector's next run, so the coin goes to the front of its queue.
   const results = await checkAndSave(env.db, coin.ca, { fetch: env.fetch, now: env.now, skipGithub: true, maxPages: REQUEST_PAGES });
   await env.db.prepare("UPDATE check_queue SET wanted_ms = ? WHERE ca = ?").bind(env.now, coin.ca).run();
-  return { status: 200, body: { ca: coin.ca, symbol: coin.symbol, author: tweet.handle, results } };
+  return { status: 200, body: { ca: coin.ca, symbol: cleanName(coin.symbol), author: tweet.handle, results } };
 }

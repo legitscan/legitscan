@@ -65,3 +65,52 @@ export async function refreshCoingecko(db: D1Like, fetch: Fetcher, apiKey: strin
   await db.prepare("INSERT INTO source_times (name, at_ms) VALUES ('coingecko', ?) ON CONFLICT (name) DO UPDATE SET at_ms = excluded.at_ms").bind(now).run();
   return { listed: list.size, compared: coins.length };
 }
+
+// The links on a listed coin's CoinGecko page: its website and X account. Owner, 17 Nov: they count like the Pons launch
+// form (both are typed by the team; the website check still has to find the address there). MOWCAT has neither a launch
+// form nor paid DexScreener info, but its CoinGecko page links mowcat.xyz and @mowcatmeme.
+// One call per coin, so a few per run and each coin about once a month (157 listed coins, 17 Nov: well inside the
+// Demo key's 10,000 calls a month next to the hourly list).
+export const CG_LINKS_EVERY_MS = 30 * 24 * 3600_000;
+
+export function parseCoingeckoLinks(json: unknown): { website: string | null; x: string | null } {
+  const links = (json as { links?: { homepage?: unknown; twitter_screen_name?: unknown } } | null)?.links;
+  if (!links || typeof links !== "object") throw new Error("CoinGecko coin page has no links");
+  const homepage = Array.isArray(links.homepage) ? links.homepage : [];
+  const website = homepage.find((u): u is string => typeof u === "string" && /^https?:\/\/\S+$/.test(u)) ?? null;
+  const x = typeof links.twitter_screen_name === "string" && /^\w{1,15}$/.test(links.twitter_screen_name) ? links.twitter_screen_name : null;
+  return { website, x };
+}
+
+// Never-read coins first, then the oldest, biggest first. A coin whose links changed is queued for a legit check.
+export async function refreshCoingeckoLinks(db: D1Like, fetch: Fetcher, apiKey: string, now: number, limit: number) {
+  const due = (
+    await db
+      .prepare(
+        `SELECT c.ca, c.cg_website, c.cg_x, k.source_url FROM checks k JOIN coins c ON c.ca = k.ca
+         WHERE k.kind = 'coingecko' AND k.status = 'pass' AND (c.cg_links_at_ms IS NULL OR c.cg_links_at_ms < ?)
+         ORDER BY c.cg_links_at_ms IS NOT NULL, c.cg_links_at_ms, c.mc_usd DESC LIMIT ?`,
+      )
+      .bind(now - CG_LINKS_EVERY_MS, limit)
+      .all<{ ca: string; cg_website: string | null; cg_x: string | null; source_url: string | null }>()
+  ).results;
+  let read = 0;
+  for (const c of due) {
+    const id = c.source_url?.split("/coins/")[1];
+    if (!id) continue;
+    const q = "localization=false&tickers=false&market_data=false&community_data=false&developer_data=false&sparkline=false";
+    const res = await fetch(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}?${q}`, {
+      method: "GET",
+      headers: { "x-cg-demo-api-key": apiKey, "user-agent": CHECK_UA, accept: "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) throw new Error(`CoinGecko coin ${id} answered HTTP ${res.status}`);
+    const { website, x } = parseCoingeckoLinks(await res.json());
+    await db.prepare("UPDATE coins SET cg_website = ?, cg_x = ?, cg_links_at_ms = ? WHERE ca = ?").bind(website, x, now, c.ca).run();
+    if (website !== c.cg_website || x !== c.cg_x) {
+      await db.prepare("INSERT INTO check_queue (ca, wanted_ms) VALUES (?, ?) ON CONFLICT (ca) DO UPDATE SET wanted_ms = excluded.wanted_ms").bind(c.ca, now).run();
+    }
+    read++;
+  }
+  return read;
+}

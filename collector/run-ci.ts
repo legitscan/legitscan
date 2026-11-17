@@ -30,7 +30,7 @@ const stats = await runCollect({
   dexBatches: backfill ? 600 : 20,
   deepCoins: backfill ? 60 : 15, // ~140 coins at/above the floor, each re-checked hourly = ~12 per run
   checkFetch: net,
-  checkCoins: backfill ? 60 : 25, // every coin with a website once an hour
+  checkCoins: 100, // 17 Nov: 223 coins waited at 25 a run; a run is ~5 min of a 20-min limit
   githubToken: process.env.GITHUB_TOKEN,
   xBearer: process.env.X_BEARER_TOKEN, // paid X API, empty until the owner buys credit and sets the secret
   coingeckoKey: process.env.COINGECKO_API_KEY, // free Demo key, set by the owner

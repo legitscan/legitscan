@@ -37,6 +37,9 @@ export type LiveCoin = {
   domainCreatedMs: number | null
   domainYoung: boolean | null // registered under 7 days ago
   freeHost: string | null // the site runs on free hosting (vercel.app...), no domain of its own
+  // collector/src/name-tricks.ts: "hidden" = invisible characters that change how the name shows (removed from symbol
+  // and name already), "mixed" = look-alike letters from another alphabet in one word
+  nameTricks: ('hidden' | 'mixed')[]
   // What the dev typed into the Pons launch form, read from the launch transaction. Self-declared. null = not read yet or not a Pons launch.
   launchForm: { description: string | null; website: string | null; x: string | null; telegram: string | null; github: string | null } | null
   checks: { website: CheckRow | null; x: CheckRow | null; xmatch: CheckRow | null; github: CheckRow | null; githubca: CheckRow | null; dev: CheckRow | null; coingecko: CheckRow | null }

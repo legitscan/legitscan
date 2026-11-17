@@ -5,6 +5,7 @@
 import { recoverMessageAddress } from "viem";
 import type { D1Like } from "./d1-types.ts";
 import { saveChecks } from "./check-store.ts";
+import { cleanName } from "./name-tricks.ts";
 
 export const SIGN_FRESH_MS = 15 * 60_000; // a message is good for 15 minutes after we hand it out
 const ADDRESS = /^0x[0-9a-f]{40}$/;
@@ -40,7 +41,7 @@ export async function signMessageAnswer(db: D1Like, ca: string, wallet: string, 
   const coin = await launchWallet(db, c);
   if (!coin) return no(404, "That coin is not in our list yet.");
   if (!coin.wallet) return no(404, "We do not know which wallet launched this coin yet, so a signature cannot be checked.");
-  if (coin.wallet !== w) return no(403, `This wallet did not launch $${coin.symbol ?? "this coin"}. Connect the wallet that launched it (${coin.wallet.slice(0, 6)}…${coin.wallet.slice(-4)}).`);
+  if (coin.wallet !== w) return no(403, `This wallet did not launch $${cleanName(coin.symbol) ?? "this coin"}. Connect the wallet that launched it (${coin.wallet.slice(0, 6)}…${coin.wallet.slice(-4)}).`);
   return { status: 200, body: { message: devSignMessage(c, w, now), issuedMs: now } };
 }
 
@@ -76,5 +77,5 @@ export async function signAnswer(input: unknown, db: D1Like, now: number): Promi
     .bind(ca, signer, message, signature, now)
     .run();
   await saveChecks(db, ca, [{ kind: "dev", status: "pass", reason: `The wallet that launched this token (${signer.slice(0, 6)}…${signer.slice(-4)}) signed the claim.`, sourceUrl: null, atMs: now }], now, false);
-  return { status: 200, body: { ca, symbol: coin.symbol, wallet: signer } };
+  return { status: 200, body: { ca, symbol: cleanName(coin.symbol), wallet: signer } };
 }

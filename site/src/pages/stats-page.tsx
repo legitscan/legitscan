@@ -16,7 +16,7 @@ export function StatsPage() {
     ['Signed by the launch wallet', s?.devPass, 'The dev signed on the claim page with the wallet that launched the token.'],
     ['GitHub pushed in the last 30 days', s?.githubPass, 'Repo or account linked from the project website.'],
     ['Listed on CoinGecko', s?.coingeckoPass, 'Coins at or above $5k whose contract is on a CoinGecko page for Robinhood Chain.'],
-    ['Legit or Legit+', s?.legit, 'Website, plus the launch form\'s X matching the site, or more. Not a safety rating.'],
+    ['Legit or Legit+', s?.legit, 'Website, plus the launch form\'s or CoinGecko\'s X matching the site, or more. Not a safety rating.'],
     ['Legit+', s?.legitPlus, 'Website, plus a tweet, the GitHub README or the launch wallet\'s signature carrying the address.'],
     ['Tweets sent in', s?.claims, 'Through the claim page.'],
   ]

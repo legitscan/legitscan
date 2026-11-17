@@ -13,7 +13,7 @@ export function MethodPage() {
       <Part id="website" title="1. The website shows the address">
         <p>
           We take the coin's website from its market listing (DexScreener or GeckoTerminal) and, for Pons coins, from the launch form the dev
-          filled in, which is stored on chain. Never from the person asking. We read that site and
+          filled in, which is stored on chain, and for coins listed on CoinGecko, from the links on their CoinGecko page. Never from the person asking. We read that site and
           look for the full contract address. Many sites load the address later from a script or a data file on the same site, so we read those
           too, up to 14 files per site. We only read the project's own domain.
         </p>
@@ -36,9 +36,10 @@ export function MethodPage() {
 
       <Part id="xmatch" title="X account match">
         <p>
-          Up to three places name the project's X account: the Pons launch form, the market listing and the website. We compare them. When they
+          Up to four places name the project's X account: the Pons launch form, the market listing, the CoinGecko page and the website. We compare them. When they
           all agree the row passes; when one names a different account we show which. This needs no X access, so it works for every coin, but
-          it is not counted toward legit: the launch form and the listing are typed by the dev.
+          on its own it does not make a coin legit: the launch form, the listing and the CoinGecko page are typed by the team. Together with
+          check 1 it gives the Legit level.
         </p>
       </Part>
 
@@ -83,7 +84,7 @@ export function MethodPage() {
       <Part id="legit" title="Two reports: Legit and Dev">
         <p>
           The Legit report answers one question: does this address belong to the project? Legit means check 1 passes and the X account the dev
-          typed into the Pons launch form is the account the website links. Legit+ means check 1 passes and a channel the project controls
+          typed into the Pons launch form or onto the coin's CoinGecko page is the account the website links. Legit+ means check 1 passes and a channel the project controls
           carries the address too: a tweet from that X account, the README of the GitHub the site links, or a signature from the launch wallet.
         </p>
         <p>
@@ -99,7 +100,7 @@ export function MethodPage() {
           the identity is then real and the coin can still lose its liquidity. In our data from 10 to 16 Nov 2026, 5 of 31 tokens that had a
           website and an X account lost their liquidity anyway, and 4 of those 5 showed their address on their own site.
         </p>
-        <p>That is why risk sits in its own column: where the coin trades, what the owner can still change, what the dev wallet did, how thin the pool is, and how new the website's domain is (a warning under 7 days, from the registry's public RDAP record), and whether the site has a domain at all (a warning when it runs on free hosting like vercel.app).</p>
+        <p>That is why risk sits in its own column: where the coin trades, what the owner can still change, what the dev wallet did, how thin the pool is, and how new the website's domain is (a warning under 7 days, from the registry's public RDAP record), and whether the site has a domain at all (a warning when it runs on free hosting like vercel.app). A token whose name hides characters that change how it is displayed, or mixes look-alike letters from another alphabet, gets a warning and is shown as it is really written.</p>
       </Part>
     </main>
   )
