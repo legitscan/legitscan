@@ -79,9 +79,9 @@ export type CheckEnv = { fetch: Fetcher; now: number; githubToken?: string; xBea
 // One coin: its listed websites and X handle from the coins table, tweets sent in through /claim, then all checks.
 export async function checkAndSave(db: D1Like, ca: string, env: CheckEnv) {
   const coin = await db
-    .prepare("SELECT websites, x_handle, launch_website, launch_x, cg_website, cg_x, domain, domain_created_ms, domain_at_ms FROM coins WHERE ca = ?")
+    .prepare("SELECT symbol, name, websites, x_handle, launch_website, launch_x, cg_website, cg_x, domain, domain_created_ms, domain_at_ms FROM coins WHERE ca = ?")
     .bind(ca)
-    .first<{ websites: string | null; x_handle: string | null; launch_website: string | null; launch_x: string | null; cg_website: string | null; cg_x: string | null; domain: string | null; domain_created_ms: number | null; domain_at_ms: number | null }>();
+    .first<{ symbol: string | null; name: string | null; websites: string | null; x_handle: string | null; launch_website: string | null; launch_x: string | null; cg_website: string | null; cg_x: string | null; domain: string | null; domain_created_ms: number | null; domain_at_ms: number | null }>();
   if (!coin) return null;
   let websites: string[] = [];
   try {
@@ -94,8 +94,20 @@ export async function checkAndSave(db: D1Like, ca: string, env: CheckEnv) {
   // CoinGecko page's (coins with neither, like MOWCAT).
   const bare = (u: string) => u.replace(/\/+$/, "");
   for (const extra of [coin.launch_website, coin.cg_website]) if (extra && !websites.some((w) => bare(w) === bare(extra))) websites.push(extra);
+  // Names of other contracts on a page that lists many (ownListing in legit-checks). By primary key, 90 at a time: D1
+  // takes at most 100 bound values a query. Only runs when such a page shows the CA and is named after the coin.
+  const namesOf = async (cas: string[]) => {
+    const out: string[][] = [];
+    for (let i = 0; i < cas.length; i += 90) {
+      const part = cas.slice(i, i + 90);
+      const rows = (await db.prepare(`SELECT symbol, name FROM coins WHERE ca IN (${part.map(() => "?").join(", ")})`).bind(...part).all<{ symbol: string | null; name: string | null }>()).results;
+      out.push(...rows.map((r) => [r.symbol, r.name].filter((n): n is string => !!n)));
+    }
+    return out;
+  };
+  const owner = { names: [coin.symbol, coin.name].filter((n): n is string => !!n), namesOf };
   const claimed = (await db.prepare("SELECT tweet_url FROM claims WHERE ca = ? ORDER BY created_ms DESC LIMIT 4").bind(ca).all<{ tweet_url: string }>()).results.map((r) => r.tweet_url);
-  const { results } = await checkCoin({ fetch: env.fetch, ca, websites, listedHandle: coin.x_handle, launchHandle: coin.launch_x, cgHandle: coin.cg_x, claimedTweets: claimed, now: env.now, githubToken: env.githubToken, xBearer: env.xBearer, skipGithub: env.skipGithub, maxPages: env.maxPages });
+  const { results } = await checkCoin({ fetch: env.fetch, ca, websites, listedHandle: coin.x_handle, launchHandle: coin.launch_x, cgHandle: coin.cg_x, claimedTweets: claimed, now: env.now, githubToken: env.githubToken, xBearer: env.xBearer, skipGithub: env.skipGithub, maxPages: env.maxPages, owner });
   await saveChecks(db, ca, results, env.now);
   await saveDomainAge(db, ca, websites[0] ?? null, coin, env);
   return results;

@@ -82,15 +82,17 @@ export function parseCoingeckoLinks(json: unknown): { website: string | null; x:
   return { website, x };
 }
 
-// Never-read coins first, then the oldest, biggest first. A coin whose links changed is queued for a legit check, its
-// old X account match voided.
+// Never-read coins first; among them, coins whose website already shows the CA (17 Nov: 56 of 117 unread), since only
+// their X account on the CoinGecko page can still make them Legit. Then the oldest, biggest first. A coin whose links
+// changed is queued for a legit check, its old X account match voided.
 export async function refreshCoingeckoLinks(db: D1Like, fetch: Fetcher, apiKey: string, now: number, limit: number) {
   const due = (
     await db
       .prepare(
         `SELECT c.ca, c.cg_website, c.cg_x, k.source_url FROM checks k JOIN coins c ON c.ca = k.ca
+           LEFT JOIN checks w ON w.ca = c.ca AND w.kind = 'website'
          WHERE k.kind = 'coingecko' AND k.status = 'pass' AND (c.cg_links_at_ms IS NULL OR c.cg_links_at_ms < ?)
-         ORDER BY c.cg_links_at_ms IS NOT NULL, c.cg_links_at_ms, c.mc_usd DESC LIMIT ?`,
+         ORDER BY c.cg_links_at_ms IS NOT NULL, w.status IS NOT 'pass', c.cg_links_at_ms, c.mc_usd DESC LIMIT ?`,
       )
       .bind(now - CG_LINKS_EVERY_MS, limit)
       .all<{ ca: string; cg_website: string | null; cg_x: string | null; source_url: string | null }>()
