@@ -31,9 +31,11 @@ export type RunOptions = {
   curveCoins?: number; // Pons curve coins read on chain per run (30 per RPC request)
   dexBatches?: number; // DexScreener calls (30 coins each)
   deepCoins?: number; // coins deep-checked per run (GeckoTerminal allows ~25 a minute)
+  deepBudgetMs?: number; // the deep stage stops starting new coins after this long (default 6 minutes)
   deepEveryMs?: number;
   launchForms?: number; // Pons launch forms read per run (10 per RPC request)
-  launchTxLookups?: number; // launch transactions looked up per run for coins found before 17 Nov
+  launchTxLookups?: number; // launch transactions looked up per run for coins found before 17 Nov (default 50: ZOLVA
+  // waited behind 101 coins at 10 a run, 17 Nov; one getLogs a coin, paced ~1 s)
   checkFetch?: Fetcher; // plain fetch for project websites, oEmbed and GitHub; no legit checks without it
   checkCoins?: number; // coins legit-checked per run
   githubToken?: string; // Actions' own GITHUB_TOKEN: 1,000 GitHub API calls an hour instead of 60
@@ -114,7 +116,7 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
       o.db,
       `SELECT ca, launch_block FROM coins WHERE launch_tx IS NULL AND launch_block IS NOT NULL AND launch_info_at_ms IS NULL
          AND (mc_usd >= ? OR launched_ms >= ?) ORDER BY mc_usd DESC LIMIT ?`,
-      floor, o.now() - CURVE_WINDOW_MS, o.launchTxLookups ?? 10,
+      floor, o.now() - CURVE_WINDOW_MS, o.launchTxLookups ?? 50,
     );
     for (const c of missing) {
       const tx = await launchTx(logsRpc, c.ca, c.launch_block);
@@ -297,7 +299,14 @@ export async function runCollect(o: RunOptions): Promise<RunStats> {
     if (missing.length) for (const [a, k] of await codeCheck(o.rpc, missing)) kindCache.set(a, k);
     return kindCache;
   };
+  // GeckoTerminal answers 429 in bursts and each try waits: 15 coins took 15.5 of the run's 20 minutes on 17 Nov, and
+  // the legit checks come after this stage. Coins left over are the stalest next run.
+  const deepUntil = o.now() + (o.deepBudgetMs ?? 6 * 60_000);
   for (const c of deep) {
+    if (o.now() > deepUntil) {
+      log(`deep: out of time, ${deep.length - s.deepChecked - s.deepErrors} left for the next run`);
+      break;
+    }
     try {
       const [info, facts] = await Promise.all([
         o.sources.gtInfo(c.ca).catch((e: Error): GtInfo | null => (s.errors.push(`gt info ${c.ca}: ${e.message}`), null)),
