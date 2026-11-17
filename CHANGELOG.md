@@ -9,6 +9,24 @@ Release steps: move the Unreleased entries under a new version and date, set the
 
 ## [Unreleased]
 
+### Added
+
+- Name tricks: a token name with hidden characters that change how it is displayed (two tokens show as USDT this
+  way) or with look-alike letters from another alphabet gets a warning, and is shown as it is really written.
+- CoinGecko page links: for coins listed on CoinGecko, the website and X account on their CoinGecko page are read
+  about once a month. The website is checked like any other, and the X account counts like the Pons launch form's for
+  the Legit level (MOWCAT has no launch form and no paid DexScreener info).
+- The Pons boards mark legit and legit+ coins.
+
+### Changed
+
+- The collector checks 100 coins a run instead of 25, eight at a time (17 Nov: 223 coins were waiting).
+
+### Fixed
+
+- The home page said none of the board's coins had passed the legit checks, and that data refreshed every 5 minutes.
+  The collector runs about once an hour.
+
 ## [0.2.0] - 2026-11-17
 
 ### Added

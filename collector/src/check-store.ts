@@ -44,7 +44,7 @@ export async function saveChecks(db: D1Like, ca: string, results: CheckResult[],
 }
 
 // Which coins the collector checks this run: coins someone claimed first, then never-checked, then the stalest past
-// their recheck time. Only coins with a website (listing or launch form; nothing to read otherwise), and either claimed,
+// their recheck time. Only coins with a website (listing, launch form or CoinGecko page; nothing to read otherwise), and either claimed,
 // at/above the floor, or launched in the last 3 days and never looked at.
 export async function dueForChecks(db: D1Like, floor: number, now: number, limit: number) {
   return (
@@ -52,7 +52,7 @@ export async function dueForChecks(db: D1Like, floor: number, now: number, limit
       .prepare(
         `SELECT c.ca FROM coins c LEFT JOIN check_queue q ON q.ca = c.ca
            LEFT JOIN checks w ON w.ca = c.ca AND w.kind = 'website'
-         WHERE ((c.websites IS NOT NULL AND c.websites <> '[]') OR c.launch_website IS NOT NULL)
+         WHERE ((c.websites IS NOT NULL AND c.websites <> '[]') OR c.launch_website IS NOT NULL OR c.cg_website IS NOT NULL)
            AND (q.wanted_ms IS NOT NULL
              OR (c.mc_usd >= ? AND (q.checked_ms IS NULL OR q.checked_ms < CASE WHEN w.status = 'pass' THEN ? ELSE ? END))
              OR (q.checked_ms IS NULL AND c.launched_ms >= ?))
@@ -68,9 +68,9 @@ export type CheckEnv = { fetch: Fetcher; now: number; githubToken?: string; xBea
 // One coin: its listed websites and X handle from the coins table, tweets sent in through /claim, then all checks.
 export async function checkAndSave(db: D1Like, ca: string, env: CheckEnv) {
   const coin = await db
-    .prepare("SELECT websites, x_handle, launch_website, launch_x, domain, domain_created_ms, domain_at_ms FROM coins WHERE ca = ?")
+    .prepare("SELECT websites, x_handle, launch_website, launch_x, cg_website, cg_x, domain, domain_created_ms, domain_at_ms FROM coins WHERE ca = ?")
     .bind(ca)
-    .first<{ websites: string | null; x_handle: string | null; launch_website: string | null; launch_x: string | null; domain: string | null; domain_created_ms: number | null; domain_at_ms: number | null }>();
+    .first<{ websites: string | null; x_handle: string | null; launch_website: string | null; launch_x: string | null; cg_website: string | null; cg_x: string | null; domain: string | null; domain_created_ms: number | null; domain_at_ms: number | null }>();
   if (!coin) return null;
   let websites: string[] = [];
   try {
@@ -79,10 +79,12 @@ export async function checkAndSave(db: D1Like, ca: string, env: CheckEnv) {
   } catch {
     websites = [];
   }
-  // The Pons launch form's website too: for a new coin it is often the only one known (the listing comes later).
-  if (coin.launch_website && !websites.some((w) => w.replace(/\/+$/, "") === coin.launch_website!.replace(/\/+$/, ""))) websites.push(coin.launch_website);
+  // The Pons launch form's website too (for a new coin often the only one known, the listing comes later), then the
+  // CoinGecko page's (coins with neither, like MOWCAT).
+  const bare = (u: string) => u.replace(/\/+$/, "");
+  for (const extra of [coin.launch_website, coin.cg_website]) if (extra && !websites.some((w) => bare(w) === bare(extra))) websites.push(extra);
   const claimed = (await db.prepare("SELECT tweet_url FROM claims WHERE ca = ? ORDER BY created_ms DESC LIMIT 4").bind(ca).all<{ tweet_url: string }>()).results.map((r) => r.tweet_url);
-  const { results } = await checkCoin({ fetch: env.fetch, ca, websites, listedHandle: coin.x_handle, launchHandle: coin.launch_x, claimedTweets: claimed, now: env.now, githubToken: env.githubToken, xBearer: env.xBearer, skipGithub: env.skipGithub, maxPages: env.maxPages });
+  const { results } = await checkCoin({ fetch: env.fetch, ca, websites, listedHandle: coin.x_handle, launchHandle: coin.launch_x, cgHandle: coin.cg_x, claimedTweets: claimed, now: env.now, githubToken: env.githubToken, xBearer: env.xBearer, skipGithub: env.skipGithub, maxPages: env.maxPages });
   await saveChecks(db, ca, results, env.now);
   await saveDomainAge(db, ca, websites[0] ?? null, coin, env);
   return results;

@@ -17,7 +17,7 @@ export function HomePage() {
 
       <section className={`${WRAP} py-20 md:py-28`}>
         <Head kicker="Live from the chain" title="New, almost bonded, migrated.">
-          Every Pons launch on Robinhood Chain, read from the chain every 5 minutes. Market facts only: none of these coins has passed the legit checks yet.
+          Every Pons launch on Robinhood Chain, read from the chain about once an hour. A coin marked legit has a website that shows its address. The rest are not proven yet.
         </Head>
         <div className="reveal"><LiveBoards /></div>
         <Link to="/coins" className="mt-5 inline-flex items-center gap-1.5 text-sm font-medium text-accent underline-offset-4 hover:underline">

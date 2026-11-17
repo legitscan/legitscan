@@ -49,7 +49,7 @@ export function CoinsPage() {
   return (
     <main className="mx-auto max-w-[1240px] px-4 pb-24 pt-10 md:px-6 md:pt-14">
       <SectionHead kicker="Robinhood Chain" title="Coins over $5k market cap">
-        Market and risk facts refresh every 5 minutes. The legit checks read each project's website, its X account and its GitHub: hourly until a coin is proven, then daily. Legit means the address is the project's, not that it is safe.
+        Market and risk facts refresh about once an hour. The legit checks read each project's website, its X account and its GitHub: hourly until a coin is proven, then daily. Legit means the address is the project's, not that it is safe.
         {data?.updatedMs ? ` Updated ${since(data.updatedMs)} ago.` : ''}
       </SectionHead>
 

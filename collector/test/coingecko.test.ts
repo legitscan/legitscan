@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { coingeckoResult, COINGECKO_EVERY_MS, parseCoingeckoList, refreshCoingecko } from "../src/coingecko.ts";
+import { checkAndSave, dueForChecks } from "../src/check-store.ts";
+import { CG_LINKS_EVERY_MS, coingeckoResult, COINGECKO_EVERY_MS, parseCoingeckoLinks, parseCoingeckoList, refreshCoingecko, refreshCoingeckoLinks } from "../src/coingecko.ts";
 import type { Fetcher } from "../src/http-json.ts";
 import { apiAnswer } from "../src/read-coins.ts";
 import { openSqlite } from "../src/sqlite-adapter.ts";
@@ -52,5 +53,40 @@ test("CoinGecko refresh: once an hour, key sent as a header, unchanged answers n
   const coin = ((await apiAnswer(db, `/api/coin/${VIRTUAL}`)).body as any).coin;
   assert.deepEqual([coin.checks.coingecko.status, coin.legit], ["pass", false]); // shown, not counted toward legit
   assert.equal(coin.checks.coingecko.checkedMs, now + COINGECKO_EVERY_MS); // last list read, not the stored row time
+  db.close();
+});
+
+test("CoinGecko page links: website and X account, junk ignored", () => {
+  assert.deepEqual(parseCoingeckoLinks({ links: { homepage: ["https://mowcat.xyz", "", ""], twitter_screen_name: "mowcatmeme" } }), { website: "https://mowcat.xyz", x: "mowcatmeme" });
+  assert.deepEqual(parseCoingeckoLinks({ links: { homepage: ["", "javascript:alert(1)"], twitter_screen_name: "" } }), { website: null, x: null });
+  assert.throws(() => parseCoingeckoLinks({ status: { error_code: 429 } }));
+});
+
+// MOWCAT, 17 Nov: not a Pons coin, no paid DexScreener info, so no website or X known until its CoinGecko page is read.
+test("MOWCAT: CoinGecko page links count like the launch form, so website + same X = Legit", async () => {
+  const MOW = "0x0b7c6c138dc75622f4200d157b13fb93e6bd94fa";
+  const db = openSqlite(":memory:");
+  await db.prepare("INSERT INTO coins (ca, found_via, found_ms, symbol, mc_usd) VALUES (?, 'geckoterminal', 1, 'MOWCAT', 156e6)").bind(MOW).run();
+  const now = Date.UTC(2026, 10, 17, 8);
+  const asked: string[] = [];
+  const fetch: Fetcher = async (url) => {
+    asked.push(url);
+    if (url.includes("/coins/list")) return Response.json([{ id: "mowcat", symbol: "mowcat", name: "MOWCAT", platforms: { robinhood: MOW } }]);
+    if (url.startsWith("https://api.coingecko.com/api/v3/coins/mowcat?")) return Response.json({ links: { homepage: ["https://mowcat.xyz"], twitter_screen_name: "mowcatmeme" } });
+    if (url === "https://mowcat.xyz/") return new Response(`<a href="https://x.com/mowcatmeme">X</a> CA ${MOW}`, { headers: { "content-type": "text/html" } });
+    return new Response("not found", { status: 404 });
+  };
+  await refreshCoingecko(db, fetch, "demo-key", 5_000, now);
+  assert.equal((await dueForChecks(db, 5_000, now, 10)).length, 0); // no website known yet: nothing to read
+  assert.equal(await refreshCoingeckoLinks(db, fetch, "demo-key", now, 5), 1);
+  assert.equal(await refreshCoingeckoLinks(db, fetch, "demo-key", now + 60_000, 5), 0); // read about once a month
+  assert.equal(await refreshCoingeckoLinks(db, fetch, "demo-key", now + CG_LINKS_EVERY_MS + 1, 5), 1);
+  assert.equal(asked.filter((u) => u.includes("/coins/mowcat?")).length, 2);
+  assert.deepEqual((await dueForChecks(db, 5_000, now, 10)).map((r) => r.ca), [MOW]); // queued: its links are new
+  await checkAndSave(db, MOW, { fetch, now, skipGithub: true });
+  const coin = ((await apiAnswer(db, `/api/coin/${MOW}`, now)).body as any).coin;
+  assert.equal(coin.checks.website.status, "pass");
+  assert.equal(coin.checks.xmatch.reason, "The CoinGecko page and the website both name @mowcatmeme.");
+  assert.equal(coin.legitLevel, 1);
   db.close();
 });
