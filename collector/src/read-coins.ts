@@ -60,13 +60,18 @@ export const MC_OVER_LIQ_WARN = 100; // real coins seen 2026-11-16 sit at 2x-25x
 export async function readCoins(db: D1Like, floor = 5_000, limit = 50, only?: string[]) {
   const select = `SELECT c.*, (SELECT count(*) FROM coins d WHERE d.dev = c.dev) AS dev_launches,
             (SELECT count(*) FROM coins t WHERE t.symbol = c.symbol AND t.ca <> c.ca) AS same_ticker FROM coins c`;
-  const rows = only
+  // The coins and their checks are asked at the same time: D1 sits in APAC, and from a far edge (Miami, 17 Nov) every
+  // round trip costs ~350 ms, while the queries themselves take ~9 ms. One by one, /api/coins took 3.7 s.
+  const listed = `SELECT ca FROM coins WHERE mc_usd >= ? ORDER BY mc_usd DESC LIMIT ?`;
+  const [rows, checks] = only
     ? only.length
-      ? await all<Record<string, any>>(db, `${select} WHERE c.ca IN (${marks(only)})`, ...only)
-      : []
-    : await all<Record<string, any>>(db, `${select} WHERE c.mc_usd >= ? ORDER BY c.mc_usd DESC LIMIT ?`, floor, limit);
+      ? await Promise.all([all<Record<string, any>>(db, `${select} WHERE c.ca IN (${marks(only)})`, ...only), readChecks(db, only)])
+      : [[], new Map<string, Checks>()]
+    : await Promise.all([
+        all<Record<string, any>>(db, `${select} WHERE c.mc_usd >= ? ORDER BY c.mc_usd DESC LIMIT ?`, floor, limit),
+        readChecksWhere(db, `k.ca IN (${listed})`, [floor, limit]),
+      ]);
   if (only) rows.sort((a, b) => only.indexOf(a.ca) - only.indexOf(b.ca)); // keep the board's order
-  const checks = await readChecks(db, rows.map((r) => r.ca));
   return rows.map((c) => {
     const level = legitLevel(checks.get(c.ca), c.launch_x ?? c.cg_x ?? null);
     return {
@@ -136,34 +141,39 @@ export function legitLevel(c: Checks | undefined, launchX: string | null): 0 | 1
   return launchX && c.xmatch?.status === "pass" ? 1 : 0;
 }
 
+// Checks of the given coins, 90 at a time (D1 takes at most 100 bound values a query), all chunks at once.
 async function readChecks(db: D1Like, cas: string[]) {
+  const parts: string[][] = [];
+  for (let i = 0; i < cas.length; i += 90) parts.push(cas.slice(i, i + 90));
+  const maps = await Promise.all(parts.map((part) => readChecksWhere(db, `k.ca IN (${marks(part)})`, part)));
+  return new Map(maps.flatMap((m) => [...m]));
+}
+
+async function readChecksWhere(db: D1Like, where: string, params: unknown[]) {
   const out = new Map<string, Checks>();
-  for (let i = 0; i < cas.length; i += 90) {
-    const part = cas.slice(i, i + 90);
-    // checks.checked_ms only moves when an answer changes. The last look: check_queue for the site checks, the hourly list
-    // read for CoinGecko, the signing time for a dev sign.
-    const rows = await all<Record<string, any>>(
-      db,
-      `SELECT k.*, CASE k.kind
-                     WHEN 'coingecko' THEN coalesce(s.at_ms, k.checked_ms)
-                     WHEN 'dev' THEN k.checked_ms
-                     ELSE coalesce(q.checked_ms, k.checked_ms) END AS looked_ms
-       FROM checks k LEFT JOIN check_queue q ON q.ca = k.ca LEFT JOIN source_times s ON s.name = 'coingecko'
-       WHERE k.ca IN (${marks(part)})`,
-      ...part,
-    );
-    for (const r of rows) {
-      const c = out.get(r.ca) ?? { ...NO_CHECKS };
-      c[r.kind as keyof Checks] = { status: r.status, reason: r.reason, sourceUrl: r.source_url, atMs: r.at_ms, checkedMs: r.looked_ms, passedMs: r.passed_ms };
-      out.set(r.ca, c);
-    }
+  // checks.checked_ms only moves when an answer changes. The last look: check_queue for the site checks, the hourly list
+  // read for CoinGecko, the signing time for a dev sign.
+  const rows = await all<Record<string, any>>(
+    db,
+    `SELECT k.*, CASE k.kind
+                   WHEN 'coingecko' THEN coalesce(s.at_ms, k.checked_ms)
+                   WHEN 'dev' THEN k.checked_ms
+                   ELSE coalesce(q.checked_ms, k.checked_ms) END AS looked_ms
+     FROM checks k LEFT JOIN check_queue q ON q.ca = k.ca LEFT JOIN source_times s ON s.name = 'coingecko'
+     WHERE ${where}`,
+    ...params,
+  );
+  for (const r of rows) {
+    const c = out.get(r.ca) ?? { ...NO_CHECKS };
+    c[r.kind as keyof Checks] = { status: r.status, reason: r.reason, sourceUrl: r.source_url, atMs: r.at_ms, checkedMs: r.looked_ms, passedMs: r.passed_ms };
+    out.set(r.ca, c);
   }
   return out;
 }
 
 // Numbers for /stats and the landing page, straight from the tables, plus the latest real pass of each check.
 export async function readStats(db: D1Like, floor = 5_000, now = Date.now()) {
-  const n = await db
+  const counts = db
     .prepare(
       `SELECT (SELECT count(*) FROM coins) AS coins,
               (SELECT count(*) FROM coins WHERE mc_usd >= ?) AS over_floor,
@@ -198,6 +208,8 @@ export async function readStats(db: D1Like, floor = 5_000, now = Date.now()) {
       .first<Record<string, any>>();
     return r ? { ca: r.ca, symbol: cleanName(r.symbol), name: cleanName(r.name), reason: r.reason, sourceUrl: r.source_url, checkedMs: r.checked_ms, passedMs: r.passed_ms } : null;
   };
+  // All five reads at once (one round trip to D1 instead of five).
+  const [n, website, x, github, dev] = await Promise.all([counts, latest("website"), latest("x"), latest("github"), latest("dev")]);
   return {
     coins: num("coins"),
     overFloor: num("over_floor"),
@@ -215,7 +227,7 @@ export async function readStats(db: D1Like, floor = 5_000, now = Date.now()) {
     tokenChecks: num("token_checks"),
     tokenChecksToday: num("token_checks_today"),
     tokenChecksSince: typeof n?.token_checks_since === "string" ? n.token_checks_since : null,
-    latest: { website: await latest("website"), x: await latest("x"), github: await latest("github"), dev: await latest("dev") },
+    latest: { website, x, github, dev },
   };
 }
 
@@ -231,22 +243,43 @@ const BOARDS = new Set<Board>(["new", "almost", "migrated"]);
 const CA = /^0x[0-9a-f]{40}$/;
 
 export async function apiAnswer(db: D1Like, path: string, now = Date.now()): Promise<{ status: number; body: unknown }> {
-  const last = await db.prepare("SELECT finished_ms FROM runs WHERE finished_ms IS NOT NULL ORDER BY id DESC LIMIT 1").first<{ finished_ms: number }>();
-  const updatedMs = last?.finished_ms ?? null;
   const [, api, kind, arg, extra, more] = path.replace(/\/+$/, "").split("/");
   if (api === "api" && kind === "sign-message" && arg && extra && more === undefined) return signMessageAnswer(db, arg, extra, now);
   if (api !== "api" || extra !== undefined) return { status: 404, body: { error: "not found" } };
-  if (kind === "board" && BOARDS.has(arg as Board)) return { status: 200, body: { updatedMs, board: arg, coins: await readBoard(db, arg as Board, 50, now) } };
-  if (kind === "stats" && arg === undefined) return { status: 200, body: { updatedMs, stats: await readStats(db, 5_000, now) } };
-  if (kind === "copies" && arg === undefined) return { status: 200, body: { updatedMs, copies: await readCopies(db, now) } };
+  // Asked now, awaited below together with the answer's own reads.
+  const last = db.prepare("SELECT finished_ms FROM runs WHERE finished_ms IS NOT NULL ORDER BY id DESC LIMIT 1").first<{ finished_ms: number }>();
+  const read = async <T>(answer: Promise<T>) => {
+    const [l, a] = await Promise.all([last, answer]);
+    return [l?.finished_ms ?? null, a] as const;
+  };
+  if (kind === "board" && BOARDS.has(arg as Board)) {
+    const [updatedMs, coins] = await read(readBoard(db, arg as Board, 50, now));
+    return { status: 200, body: { updatedMs, board: arg, coins } };
+  }
+  if (kind === "stats" && arg === undefined) {
+    const [updatedMs, stats] = await read(readStats(db, 5_000, now));
+    return { status: 200, body: { updatedMs, stats } };
+  }
+  if (kind === "copies" && arg === undefined) {
+    const [updatedMs, copies] = await read(readCopies(db, now));
+    return { status: 200, body: { updatedMs, copies } };
+  }
   // All of them (562 on 17 Nov; at 100 the list stopped at $230k MC and hid ZOLVA). The page splits them into pages.
   // 600 coins: ~30k D1 rows read, ~140 KB gzipped.
-  if (kind === "coins" && arg === undefined) return { status: 200, body: { updatedMs, coins: await readCoins(db, 5_000, 1000) } };
+  if (kind === "coins" && arg === undefined) {
+    const [updatedMs, coins] = await read(readCoins(db, 5_000, 1000));
+    return { status: 200, body: { updatedMs, coins } };
+  }
   if (kind === "coin" && arg && CA.test(arg.toLowerCase())) {
-    const [coin] = await readCoins(db, 0, 1, [arg.toLowerCase()]);
+    const ca = arg.toLowerCase();
+    const [updatedMs, [[coin], history, sig]] = await read(
+      Promise.all([
+        readCoins(db, 0, 1, [ca]),
+        all<Record<string, any>>(db, "SELECT kind, status, reason, at_ms FROM check_events WHERE ca = ? ORDER BY at_ms DESC, id DESC LIMIT 30", ca),
+        db.prepare("SELECT wallet, message, signature, signed_ms FROM dev_signatures WHERE ca = ?").bind(ca).first<Record<string, any>>(),
+      ]),
+    );
     if (!coin) return { status: 404, body: { updatedMs, error: "not in our list yet" } };
-    const history = await all<Record<string, any>>(db, "SELECT kind, status, reason, at_ms FROM check_events WHERE ca = ? ORDER BY at_ms DESC, id DESC LIMIT 30", coin.ca);
-    const sig = await db.prepare("SELECT wallet, message, signature, signed_ms FROM dev_signatures WHERE ca = ?").bind(coin.ca).first<Record<string, any>>();
     return {
       status: 200,
       body: {

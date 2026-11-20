@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router'
-import { ChevronLeft, ChevronRight, Search } from 'lucide-react'
-import { LiveCoinTable } from '@/components/live-coin-table'
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Search } from 'lucide-react'
+import { COLUMNS, LiveCoinTable, riskItems, type ColumnKey, type SortDir } from '@/components/live-coin-table'
 import { SectionHead } from '@/components/section-head'
 import { countCheck, useApi, type LiveCoin } from '@/data/live-coins'
 import { isCa, since } from '@/format-coin'
@@ -15,8 +15,30 @@ const MC = {
 } as const
 type McKey = keyof typeof MC
 
-const SORTS = { mc: 'Market cap', newest: 'Newest', holders: 'Holders' } as const
-type SortKey = keyof typeof SORTS
+// What each column sorts by, and which way its first press goes. Unknown values ("no data") always sit at the bottom.
+const COIN_SORTS: Record<ColumnKey, { value: (c: LiveCoin) => number | string | null; first: SortDir }> = {
+  coin: { value: (c) => (c.symbol ?? c.name ?? '').toLowerCase() || null, first: 'asc' },
+  legit: { value: (c) => c.legitLevel, first: 'desc' },
+  mc: { value: (c) => c.mcUsd, first: 'desc' },
+  liq: { value: (c) => c.liqUsd, first: 'desc' },
+  holders: { value: (c) => c.holders, first: 'desc' },
+  top10: { value: (c) => c.top10Pct, first: 'desc' },
+  dev: { value: (c) => c.devLaunches, first: 'desc' },
+  copies: { value: (c) => c.sameTicker, first: 'desc' },
+  risk: { value: (c) => riskItems(c, false).filter(([, warn]) => warn).length, first: 'desc' },
+  age: { value: (c) => c.launchedMs ?? c.pairCreatedMs, first: 'desc' }, // newest first
+}
+
+function byColumn(key: ColumnKey, dir: SortDir) {
+  const { value } = COIN_SORTS[key]
+  const sign = dir === 'asc' ? 1 : -1
+  return (a: LiveCoin, b: LiveCoin) => {
+    const x = value(a)
+    const y = value(b)
+    if (x === null || y === null) return x === y ? 0 : x === null ? 1 : -1
+    return sign * (typeof x === 'string' ? x.localeCompare(String(y)) : x - Number(y)) || (b.mcUsd ?? 0) - (a.mcUsd ?? 0)
+  }
+}
 
 const PROOF = {
   all: ['All coins', () => true],
@@ -34,7 +56,8 @@ export function CoinsPage() {
   const [params] = useSearchParams()
   const [proof, setProof] = useState<ProofKey>((params.get('proof') as ProofKey) in PROOF ? (params.get('proof') as ProofKey) : 'all')
   const [mc, setMc] = useState<McKey>('all')
-  const [sort, setSort] = useState<SortKey>('mc')
+  const [sort, setSort] = useState<{ key: ColumnKey; dir: SortDir }>({ key: 'mc', dir: 'desc' })
+  const sortBy = (key: ColumnKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: COIN_SORTS[key].first }))
   const [page, setPage] = useState(0)
   const [q, setQ] = useState('')
   const nav = useNavigate()
@@ -71,13 +94,7 @@ export function CoinsPage() {
   }
   const list = useMemo(
     () =>
-      base.filter(PROOF[proof][1]).sort((a, b) =>
-        sort === 'newest'
-          ? (b.launchedMs ?? b.pairCreatedMs ?? 0) - (a.launchedMs ?? a.pairCreatedMs ?? 0)
-          : sort === 'holders'
-            ? (b.holders ?? -1) - (a.holders ?? -1)
-            : (b.mcUsd ?? 0) - (a.mcUsd ?? 0),
-      ),
+      base.filter(PROOF[proof][1]).sort(byColumn(sort.key, sort.dir)),
     [base, proof, sort],
   )
   useEffect(() => setPage(0), [proof, mc, sort, showUnbacked, needle])
@@ -127,7 +144,14 @@ export function CoinsPage() {
 
       <div className="mt-4 flex flex-col gap-3 text-sm md:flex-row md:flex-wrap md:items-center md:gap-x-8">
         <Choice label="Market cap" value={mc} onChange={setMc} options={(Object.keys(MC) as McKey[]).map((k) => [k, MC[k][0]])} />
-        <Choice label="Sort" value={sort} onChange={setSort} options={Object.entries(SORTS) as [SortKey, string][]} />
+        {/* Phones have no header row to press, so the sort gets its own row there. */}
+        <div className="flex flex-wrap items-center gap-x-4 md:hidden">
+          <Choice label="Sort" value={sort.key} onChange={sortBy} options={COLUMNS.map(([k, t]) => [k, t] as [ColumnKey, string])} />
+          <button type="button" onClick={() => sortBy(sort.key)} className="inline-flex min-h-11 items-center gap-1 text-muted hover:text-ink" aria-label={`Sorted ${sort.dir === 'asc' ? 'low to high' : 'high to low'}, press to flip`}>
+            {sort.dir === 'asc' ? <ArrowUp size={14} aria-hidden="true" /> : <ArrowDown size={14} aria-hidden="true" />}
+            {sort.dir === 'asc' ? 'Low first' : 'High first'}
+          </button>
+        </div>
         <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 text-muted md:ml-auto">
           <input type="checkbox" checked={showUnbacked} onChange={(e) => setShowUnbacked(e.target.checked)} className="h-4 w-4 accent-[#0a7c91]" />
           Include {unbacked} coins with MC not backed by liquidity
@@ -141,7 +165,7 @@ export function CoinsPage() {
           <div className="card p-8 text-center text-fail">Could not load the coins. Try again in a minute.</div>
         ) : list.length ? (
           <>
-            <LiveCoinTable coins={shown} />
+            <LiveCoinTable coins={shown} sort={sort} onSort={sortBy} />
             <Pager page={page} pages={pages} total={list.length} onPage={(p) => { setPage(p); window.scrollTo({ top: 0 }) }} />
           </>
         ) : (

@@ -79,7 +79,7 @@ async function main() {
   });
   const found = lines.filter((l): l is string => !!l);
   const report = found.length
-    ? `The weekly second check read ${coins.length} coins and disagrees with the collector on ${found.length}:\n\n${found.join("\n")}\n\nAsk Claude to look at this issue: each line is either a rule to fix or a site that changed.\n`
+    ? `The weekly second check read ${coins.length} coins and disagrees with the collector on ${found.length}:\n\n${found.join("\n")}\n\nEach line is either a rule to fix or a site that changed.\n`
     : "";
   writeFileSync(process.env.REPORT ?? "audit-report.md", report);
   console.log(report || `The weekly second check read ${coins.length} coins and agrees with the collector on all of them.`);
